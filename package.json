@@ -1,6 +1,6 @@
 {
   "name": "duroxide",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Durable execution runtime for Node.js, powered by Rust",
   "main": "lib/duroxide.js",
   "types": "index.d.ts",
@@ -34,10 +34,10 @@
     "node": ">= 18"
   },
   "optionalDependencies": {
-    "duroxide-win32-x64-msvc": "0.1.0",
-    "duroxide-darwin-x64": "0.1.0",
-    "duroxide-linux-x64-gnu": "0.1.0",
-    "duroxide-darwin-arm64": "0.1.0"
+    "duroxide-win32-x64-msvc": "0.1.1",
+    "duroxide-darwin-x64": "0.1.1",
+    "duroxide-linux-x64-gnu": "0.1.1",
+    "duroxide-darwin-arm64": "0.1.1"
   },
   "files": [
     "index.js",
