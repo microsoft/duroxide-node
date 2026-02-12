@@ -43,3 +43,67 @@ pub fn activity_is_cancelled(token: String) -> bool {
 pub fn activity_get_client(token: String) -> Option<JsClient> {
     handlers::activity_get_client(&token)
 }
+
+/// Options for `initTracing`. Call before `runtime.start()` to direct
+/// Rust tracing output to a file instead of stdout.
+#[napi_derive::napi(object)]
+pub struct JsTracingOptions {
+    /// Path to the log file. Traces are appended.
+    pub log_file: String,
+    /// Log level filter (default: "info"). Respects the same syntax as
+    /// `ObservabilityConfig.log_level` — the default filter expression is
+    /// `warn,duroxide::orchestration={level},duroxide::activity={level}`.
+    pub log_level: Option<String>,
+    /// Log format: "json", "pretty", or "compact" (default: "compact")
+    pub log_format: Option<String>,
+}
+
+/// Install a tracing subscriber that writes to a file.
+///
+/// Must be called **before** `runtime.start()`. Since duroxide uses
+/// `try_init()` (first-writer-wins), the runtime's built-in subscriber
+/// will silently no-op if one is already installed.
+#[napi_derive::napi]
+pub fn init_tracing(options: JsTracingOptions) -> napi::Result<()> {
+    use std::fs::OpenOptions;
+    use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
+
+    let level = options.log_level.unwrap_or_else(|| "info".to_string());
+    let filter_expr = format!("warn,duroxide::orchestration={level},duroxide::activity={level}");
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new(filter_expr));
+
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&options.log_file)
+        .map_err(|e| napi::Error::from_reason(format!("Failed to open log file '{}': {e}", options.log_file)))?;
+
+    let format = options.log_format.unwrap_or_default();
+    match format.as_str() {
+        "json" => {
+            tracing_subscriber::registry()
+                .with(env_filter)
+                .with(fmt::layer().json().with_writer(file))
+                .try_init()
+                .map_err(|e| napi::Error::from_reason(format!("Failed to init tracing: {e}")))?;
+        }
+        "pretty" => {
+            tracing_subscriber::registry()
+                .with(env_filter)
+                .with(fmt::layer().with_writer(file))
+                .try_init()
+                .map_err(|e| napi::Error::from_reason(format!("Failed to init tracing: {e}")))?;
+        }
+        _ => {
+            // compact (default)
+            tracing_subscriber::registry()
+                .with(env_filter)
+                .with(fmt::layer().compact().with_writer(file))
+                .try_init()
+                .map_err(|e| napi::Error::from_reason(format!("Failed to init tracing: {e}")))?;
+        }
+    }
+
+    Ok(())
+}

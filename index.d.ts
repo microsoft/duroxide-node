@@ -145,6 +145,30 @@ export declare function orchestrationTraceLog(instanceId: string, level: string,
 export declare function activityIsCancelled(token: string): boolean
 /** Get a Client from an activity context, allowing activities to start new orchestrations. */
 export declare function activityGetClient(token: string): JsClient | null
+/**
+ * Options for `initTracing`. Call before `runtime.start()` to direct
+ * Rust tracing output to a file instead of stdout.
+ */
+export interface JsTracingOptions {
+  /** Path to the log file. Traces are appended. */
+  logFile: string
+  /**
+   * Log level filter (default: "info"). Respects the same syntax as
+   * `ObservabilityConfig.log_level` — the default filter expression is
+   * `warn,duroxide::orchestration={level},duroxide::activity={level}`.
+   */
+  logLevel?: string
+  /** Log format: "json", "pretty", or "compact" (default: "compact") */
+  logFormat?: string
+}
+/**
+ * Install a tracing subscriber that writes to a file.
+ *
+ * Must be called **before** `runtime.start()`. Since duroxide uses
+ * `try_init()` (first-writer-wins), the runtime's built-in subscriber
+ * will silently no-op if one is already installed.
+ */
+export declare function initTracing(options: JsTracingOptions): void
 /** Wraps duroxide's Client for use from JavaScript. */
 export declare class JsClient {
   constructor(provider: JsSqliteProvider)

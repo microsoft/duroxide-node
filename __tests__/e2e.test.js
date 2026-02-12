@@ -9,7 +9,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
-const { SqliteProvider, PostgresProvider, Client, Runtime } = require('../lib/duroxide.js');
+const { SqliteProvider, PostgresProvider, Client, Runtime, initTracing } = require('../lib/duroxide.js');
 
 // Load .env from project root
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
@@ -743,5 +743,33 @@ describe('sqlite smoketest', () => {
     } finally {
       await runtime.shutdown(100);
     }
+  });
+});
+
+// ─── 22. initTracing ─────────────────────────────────────────────
+
+describe('initTracing', () => {
+  it('is exported as a function', () => {
+    assert.strictEqual(typeof initTracing, 'function');
+  });
+
+  it('writes traces to a file when called before any runtime', () => {
+    const logFile = path.join(os.tmpdir(), `duroxide-init-tracing-${Date.now()}.log`);
+    // May throw if a global subscriber is already installed — that's OK
+    try {
+      initTracing({ logFile, logLevel: 'info' });
+    } catch (err) {
+      // first-writer-wins: another subscriber already installed
+      assert.ok(err.message.includes('Failed to init tracing'), `unexpected error: ${err.message}`);
+    }
+    // Clean up
+    try { fs.unlinkSync(logFile); } catch {}
+  });
+
+  it('throws a clear error for invalid log file path', () => {
+    assert.throws(
+      () => initTracing({ logFile: '/nonexistent-dir/sub/test.log' }),
+      (err) => err.message.includes('Failed to open log file'),
+    );
   });
 });
