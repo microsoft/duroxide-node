@@ -203,6 +203,50 @@ describe('admin: readExecutionHistory', () => {
     assert.ok(firstEvent.kind.includes('OrchestrationStarted'), `first event should be OrchestrationStarted, got ${firstEvent.kind}`);
     assert.ok(firstEvent.timestampMs > 0);
   });
+
+  it('includes data field with event-specific content', async () => {
+    const { client, instanceId } = await runToCompletion(
+      'HistoryDataTest', { greeting: 'hello' },
+      (rt) => {
+        rt.registerActivity('reverse', async (ctx, input) => ({ reversed: true, ...input }));
+        rt.registerOrchestration('HistoryDataTest', function* (ctx, input) {
+          return yield ctx.scheduleActivity('reverse', input);
+        });
+      }
+    );
+
+    const events = await client.readExecutionHistory(instanceId, 1);
+
+    // OrchestrationStarted should have name, version, input
+    const started = events.find(e => e.kind === 'OrchestrationStarted');
+    assert.ok(started, 'should have OrchestrationStarted');
+    assert.ok(started.data, 'OrchestrationStarted should have data');
+    const startedData = JSON.parse(started.data);
+    assert.strictEqual(startedData.name, 'HistoryDataTest');
+    assert.deepStrictEqual(startedData.input, { greeting: 'hello' });
+
+    // ActivityScheduled should have name and input
+    const scheduled = events.find(e => e.kind === 'ActivityScheduled');
+    assert.ok(scheduled, 'should have ActivityScheduled');
+    assert.ok(scheduled.data, 'ActivityScheduled should have data');
+    const scheduledData = JSON.parse(scheduled.data);
+    assert.strictEqual(scheduledData.name, 'reverse');
+
+    // ActivityCompleted should have the result
+    const completed = events.find(e => e.kind === 'ActivityCompleted');
+    assert.ok(completed, 'should have ActivityCompleted');
+    assert.ok(completed.data, 'ActivityCompleted should have data');
+    const completedData = JSON.parse(completed.data);
+    assert.strictEqual(completedData.reversed, true);
+    assert.strictEqual(completedData.greeting, 'hello');
+
+    // OrchestrationCompleted should have output
+    const orchCompleted = events.find(e => e.kind === 'OrchestrationCompleted');
+    assert.ok(orchCompleted, 'should have OrchestrationCompleted');
+    assert.ok(orchCompleted.data, 'OrchestrationCompleted should have data');
+    const orchData = JSON.parse(orchCompleted.data);
+    assert.strictEqual(orchData.reversed, true);
+  });
 });
 
 // ─── 7. getInstanceTree ──────────────────────────────────────────

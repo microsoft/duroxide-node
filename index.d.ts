@@ -123,6 +123,8 @@ export interface JsEvent {
   kind: string
   sourceEventId?: number
   timestampMs: number
+  /** Event-specific data (activity result, input, error, timer fire_at, etc.) */
+  data?: string
 }
 /**
  * Emit an activity trace through the current Rust ActivityContext.

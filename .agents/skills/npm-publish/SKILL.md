@@ -24,7 +24,7 @@ npx napi build --platform --release
 ### 2. Tests Pass
 
 ```bash
-# All 50 tests must pass (requires DATABASE_URL in .env)
+# All 52 tests must pass (requires DATABASE_URL in .env)
 npm run test:all
 ```
 

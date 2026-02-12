@@ -114,6 +114,7 @@ The JS generator yields plain objects that map to Rust `ScheduledTask` variants:
 | `{ type: 'utcNow' }` | `UtcNow` | Deterministic timestamp |
 | `{ type: 'newGuid' }` | `NewGuid` | Deterministic GUID |
 | `{ type: 'continueAsNew', input }` | `ContinueAsNew` | Restart orchestration |
+| `{ type: 'continueAsNewVersioned', input, version }` | `ContinueAsNewVersioned` | Restart as specific version |
 
 ## Key Patterns
 

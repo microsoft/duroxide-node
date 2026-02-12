@@ -138,6 +138,33 @@ RUST_LOG=duroxide=debug node app.js    # DEBUG for duroxide only
 RUST_LOG=duroxide::activity=info node app.js  # Activity traces only
 ```
 
+## Management API
+
+The `Client` class includes a management API for inspecting and managing orchestration instances:
+
+```javascript
+const client = new Client(provider);
+
+// Instance management
+const instances = await client.listAllInstances();
+const info = await client.getInstanceInfo(instanceId);
+const tree = await client.getInstanceTree(instanceId);
+await client.deleteInstance(instanceId, false);
+
+// Execution history with full event data
+const executions = await client.listExecutions(instanceId);
+const events = await client.readExecutionHistory(instanceId, executions[0]);
+for (const event of events) {
+  console.log(event.kind, event.data);
+  // event.kind: "OrchestrationStarted" | "ActivityScheduled" | "ActivityCompleted" | ...
+  // event.data: JSON string with event-specific content (result, input, error, etc.)
+}
+
+// Metrics
+const metrics = await client.getSystemMetrics();
+const depths = await client.getQueueDepths();
+```
+
 ## Documentation
 
 - [Architecture](https://github.com/affandar/duroxide-node/blob/main/docs/architecture.md) — how the Rust/JS interop works, yield vs await, limitations

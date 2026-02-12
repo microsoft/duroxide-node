@@ -15,6 +15,56 @@ use crate::types::{
     JsInstanceFilter, JsEvent,
 };
 
+/// Extract event-specific data as a JSON string from an EventKind.
+fn extract_event_data(kind: &duroxide::EventKind) -> Option<String> {
+    match kind {
+        duroxide::EventKind::OrchestrationStarted { input, name, version, .. } => {
+            Some(format!(r#"{{"name":{},"version":{},"input":{}}}"#,
+                serde_json::to_string(name).unwrap_or_default(),
+                serde_json::to_string(version).unwrap_or_default(),
+                input))
+        }
+        duroxide::EventKind::OrchestrationCompleted { output } => Some(output.clone()),
+        duroxide::EventKind::OrchestrationFailed { details } => {
+            serde_json::to_string(details).ok()
+        }
+        duroxide::EventKind::ActivityScheduled { name, input } => {
+            Some(format!(r#"{{"name":{},"input":{}}}"#,
+                serde_json::to_string(name).unwrap_or_default(),
+                input))
+        }
+        duroxide::EventKind::ActivityCompleted { result } => Some(result.clone()),
+        duroxide::EventKind::ActivityFailed { details } => {
+            serde_json::to_string(details).ok()
+        }
+        duroxide::EventKind::TimerCreated { fire_at_ms } => {
+            Some(format!(r#"{{"fireAtMs":{}}}"#, fire_at_ms))
+        }
+        duroxide::EventKind::TimerFired { fire_at_ms } => {
+            Some(format!(r#"{{"fireAtMs":{}}}"#, fire_at_ms))
+        }
+        duroxide::EventKind::ExternalSubscribed { name } => {
+            Some(format!(r#"{{"name":{}}}"#, serde_json::to_string(name).unwrap_or_default()))
+        }
+        duroxide::EventKind::ExternalEvent { name, data } => {
+            Some(format!(r#"{{"name":{},"data":{}}}"#,
+                serde_json::to_string(name).unwrap_or_default(),
+                data))
+        }
+        duroxide::EventKind::SubOrchestrationScheduled { name, instance, input } => {
+            Some(format!(r#"{{"name":{},"instance":{},"input":{}}}"#,
+                serde_json::to_string(name).unwrap_or_default(),
+                serde_json::to_string(instance).unwrap_or_default(),
+                input))
+        }
+        duroxide::EventKind::SubOrchestrationCompleted { result } => Some(result.clone()),
+        duroxide::EventKind::SubOrchestrationFailed { details } => {
+            serde_json::to_string(details).ok()
+        }
+        _ => None,
+    }
+}
+
 /// Wraps duroxide's Client for use from JavaScript.
 #[napi]
 pub struct JsClient {
@@ -241,11 +291,15 @@ impl JsClient {
             .map_err(|e| Error::from_reason(format!("{e}")))?;
         Ok(events
             .into_iter()
-            .map(|e| JsEvent {
-                event_id: e.event_id() as i64,
-                kind: format!("{:?}", e.kind).split('{').next().unwrap_or("Unknown").trim().to_string(),
-                source_event_id: e.source_event_id.map(|v| v as i64),
-                timestamp_ms: e.timestamp_ms as i64,
+            .map(|e| {
+                let data = extract_event_data(&e.kind);
+                JsEvent {
+                    event_id: e.event_id() as i64,
+                    kind: format!("{:?}", e.kind).split('{').next().unwrap_or("Unknown").trim().to_string(),
+                    source_event_id: e.source_event_id.map(|v| v as i64),
+                    timestamp_ms: e.timestamp_ms as i64,
+                    data,
+                }
             })
             .collect())
     }

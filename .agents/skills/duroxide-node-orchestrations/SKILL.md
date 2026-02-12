@@ -315,11 +315,11 @@ describe('My Feature', () => {
 ### Test Commands
 
 ```bash
-npm test                    # PostgreSQL e2e (23 tests + 1 SQLite smoketest)
+npm test                    # PostgreSQL e2e (24 tests + 1 SQLite smoketest)
 npm run test:races          # Race/join composition tests (7 tests)
 npm run test:admin          # Admin API tests (14 tests)
 npm run test:scenarios      # Scenario tests (6 tests)
-npm run test:all            # Everything (50 tests)
+npm run test:all            # Everything (52 tests)
 ```
 
 ### Test Tips
