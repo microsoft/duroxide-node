@@ -72,7 +72,11 @@ jobs:
       - name: List binaries
         run: ls -lh *.node
       - name: Move binaries to platform packages
-        run: npx napi artifacts
+        run: |
+          mv duroxide.darwin-arm64.node npm/npm/darwin-arm64/
+          mv duroxide.darwin-x64.node npm/npm/darwin-x64/
+          mv duroxide.linux-x64-gnu.node npm/npm/linux-x64-gnu/
+          mv duroxide.win32-x64-msvc.node npm/npm/win32-x64-msvc/
       - name: List platform packages
         run: |
           for dir in npm/npm/*/; do
