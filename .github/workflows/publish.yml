@@ -21,7 +21,7 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
             platform: darwin-arm64
-          - os: macos-13
+          - os: macos-latest
             target: x86_64-apple-darwin
             platform: darwin-x64
           - os: ubuntu-latest
