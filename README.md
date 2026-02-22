@@ -1,16 +1,8 @@
-# ⚠️ This repository has moved
-
-**This repo has been relocated to [microsoft/duroxide-node](https://github.com/microsoft/duroxide-node).**
-
-All future development will happen there. This repository is archived and will no longer receive updates.
-
----
-
 # duroxide-node
 
 Node.js/TypeScript SDK for the [Duroxide](https://github.com/affandar/duroxide) durable execution runtime. Write reliable, long-running workflows in JavaScript using generator functions — backed by a Rust runtime that handles persistence, replay, and fault tolerance.
 
-> See [CHANGELOG.md](https://github.com/affandar/duroxide-node/blob/main/CHANGELOG.md) for release notes.
+> See [CHANGELOG.md](https://github.com/microsoft/duroxide-node/blob/main/CHANGELOG.md) for release notes.
 
 ## Features
 
@@ -75,7 +67,7 @@ main();
 
 ## Why Generators (not async/await)?
 
-Duroxide uses `function*` generators instead of `async function` for orchestrations. This is a deliberate design choice — see [Architecture](https://github.com/affandar/duroxide-node/blob/main/docs/architecture.md#yield-vs-await) for the full explanation. The short version: generators give Rust full control over when and how each step executes, which is essential for deterministic replay.
+Duroxide uses `function*` generators instead of `async function` for orchestrations. This is a deliberate design choice — see [Architecture](https://github.com/microsoft/duroxide-node/blob/main/docs/architecture.md#yield-vs-await) for the full explanation. The short version: generators give Rust full control over when and how each step executes, which is essential for deterministic replay.
 
 ```javascript
 // ✅ Orchestrations use yield
@@ -188,8 +180,8 @@ const depths = await client.getQueueDepths();
 
 ## Documentation
 
-- [Architecture](https://github.com/affandar/duroxide-node/blob/main/docs/architecture.md) — how the Rust/JS interop works, yield vs await, limitations
-- [User Guide](https://github.com/affandar/duroxide-node/blob/main/docs/user-guide.md) — patterns, recipes, and best practices
+- [Architecture](https://github.com/microsoft/duroxide-node/blob/main/docs/architecture.md) — how the Rust/JS interop works, yield vs await, limitations
+- [User Guide](https://github.com/microsoft/duroxide-node/blob/main/docs/user-guide.md) — patterns, recipes, and best practices
 
 ## Tests
 
