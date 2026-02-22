@@ -169,7 +169,7 @@ describe('fan-out fan-in', () => {
         const b = ctx.scheduleActivity('Greetings', 'Samba');
         const results = yield ctx.all([a, b]);
         const vals = results
-          .map((r) => (typeof r.ok === 'string' ? JSON.parse(r.ok) : r.ok))
+          .map((r) => r.ok)
           .sort();
         return `${vals[0]}, ${vals[1]}`;
       });
@@ -237,12 +237,7 @@ describe('sub-orchestration basic', () => {
       });
       rt.registerOrchestration('Parent', function* (ctx, input) {
         const r = yield ctx.scheduleSubOrchestration('ChildUpper', input);
-        // Sub-orchestration result is JSON-encoded; parse if it's a string
-        let val = r;
-        if (typeof val === 'string') {
-          try { val = JSON.parse(val); } catch { /* already plain */ }
-        }
-        return `parent:${val}`;
+        return `parent:${r}`;
       });
     });
     assert.strictEqual(result.status, 'Completed');
@@ -267,7 +262,7 @@ describe('sub-orchestration fan-out', () => {
         const b = ctx.scheduleSubOrchestration('ChildSum', '3,4');
         const results = yield ctx.all([a, b]);
         const nums = results.map((r) => {
-          const v = typeof r.ok === 'string' ? JSON.parse(r.ok) : r.ok;
+          const v = r.ok;
           return typeof v === 'string' ? parseInt(v) : v;
         });
         return `total=${nums.reduce((a, b) => a + b, 0)}`;
@@ -289,19 +284,11 @@ describe('sub-orchestration chained', () => {
       });
       rt.registerOrchestration('Mid', function* (ctx, input) {
         const r = yield ctx.scheduleSubOrchestration('Leaf', input);
-        let val = r;
-        if (typeof val === 'string') {
-          try { val = JSON.parse(val); } catch { /* already plain */ }
-        }
-        return `${val}-mid`;
+        return `${r}-mid`;
       });
       rt.registerOrchestration('Root', function* (ctx, input) {
         const r = yield ctx.scheduleSubOrchestration('Mid', input);
-        let val = r;
-        if (typeof val === 'string') {
-          try { val = JSON.parse(val); } catch { /* already plain */ }
-        }
-        return `root:${val}`;
+        return `root:${r}`;
       });
     });
     assert.strictEqual(result.status, 'Completed');

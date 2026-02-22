@@ -38,6 +38,8 @@ coverage.lcov
 *.darwin-x64.node
 *.linux-x64-gnu.node
 *.win32-x64-msvc.node
+npm/npm/*/index.js
+npm/npm/*/index.d.ts
 
 # Cargo lock (library crate)
 Cargo.lock

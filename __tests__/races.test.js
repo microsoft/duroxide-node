@@ -58,7 +58,7 @@ describe('all() with mixed task types', () => {
     });
     assert.strictEqual(result.status, 'Completed');
     assert.strictEqual(result.output.length, 2);
-    assert.strictEqual(JSON.parse(result.output[0].ok), 'done-work');
+    assert.strictEqual(result.output[0].ok, 'done-work');
     assert.strictEqual(result.output[1].ok, null);
   });
 
@@ -85,8 +85,8 @@ describe('all() with mixed task types', () => {
 
       assert.strictEqual(result.status, 'Completed');
       assert.strictEqual(result.output.length, 2);
-      assert.strictEqual(JSON.parse(result.output[0].ok), 'quick-go');
-      assert.deepStrictEqual(JSON.parse(result.output[1].ok), { msg: 'hi' });
+      assert.strictEqual(result.output[0].ok, 'quick-go');
+      assert.deepStrictEqual(result.output[1].ok, { msg: 'hi' });
     } finally {
       await runtime.shutdown(100);
     }
@@ -107,6 +107,38 @@ describe('all() with mixed task types', () => {
     assert.strictEqual(result.output[0].ok, null);
     assert.strictEqual(result.output[1].ok, null);
   });
+  it('joins activity + dequeueEvent — value is not double-serialized', async () => {
+    const instanceId = uid('all-deq');
+    const client = new Client(provider);
+    const runtime = new Runtime(provider, { dispatcherPollIntervalMs: 50 });
+
+    runtime.registerActivity('Quick', async (ctx, input) => `quick-${input}`);
+    runtime.registerOrchestration('AllActivityDequeue', function* (ctx) {
+      const results = yield ctx.all([
+        ctx.scheduleActivity('Quick', 'go'),
+        ctx.dequeueEvent('inbox'),
+      ]);
+      return results;
+    });
+
+    await runtime.start();
+    try {
+      await client.startOrchestration(instanceId, 'AllActivityDequeue', null);
+      await new Promise((r) => setTimeout(r, 500));
+      await client.enqueueEvent(instanceId, 'inbox', { prompt: 'HELLO' });
+      const result = await client.waitForOrchestration(instanceId, 10000);
+
+      assert.strictEqual(result.status, 'Completed');
+      assert.strictEqual(result.output.length, 2);
+      assert.strictEqual(result.output[0].ok, 'quick-go');
+      // Verify dequeue value is properly structured, not double-serialized
+      assert.strictEqual(typeof result.output[1].ok, 'object',
+        'all() dequeue value should be an object, not a double-serialized string');
+      assert.deepStrictEqual(result.output[1].ok, { prompt: 'HELLO' });
+    } finally {
+      await runtime.shutdown(100);
+    }
+  });
 });
 
 // ─── ctx.race() with mixed task types ────────────────────────────
@@ -125,7 +157,7 @@ describe('race() with mixed task types', () => {
     });
     assert.strictEqual(result.status, 'Completed');
     assert.strictEqual(result.output.index, 0);
-    assert.strictEqual(JSON.parse(result.output.value), 'fast-go');
+    assert.strictEqual(result.output.value, 'fast-go');
   });
 
   it('races timer vs activity (timer wins, activity cooperatively cancels)', async () => {
@@ -161,7 +193,7 @@ describe('race() with mixed task types', () => {
 
       assert.strictEqual(result.status, 'Completed');
       assert.strictEqual(result.output.index, 0);
-      assert.strictEqual(result.output.value, 'null');
+      assert.strictEqual(result.output.value, null);
 
       // Wait for the cancellation signal to propagate to the activity
       for (let i = 0; i < 60 && !activityCancelled; i++) {
@@ -195,7 +227,41 @@ describe('race() with mixed task types', () => {
 
       assert.strictEqual(result.status, 'Completed');
       assert.strictEqual(result.output.index, 0);
-      assert.deepStrictEqual(JSON.parse(result.output.value), { ok: true });
+      assert.deepStrictEqual(result.output.value, { ok: true });
+    } finally {
+      await runtime.shutdown(100);
+    }
+  });
+
+  it('race(timer, dequeueEvent) — value is not double-serialized (#59)', async () => {
+    const instanceId = uid('race-deq');
+    const client = new Client(provider);
+    const runtime = new Runtime(provider, { dispatcherPollIntervalMs: 50 });
+
+    runtime.registerOrchestration('RaceDequeue', function* (ctx) {
+      const winner = yield ctx.race(
+        ctx.scheduleTimer(60000),
+        ctx.dequeueEvent('messages'),
+      );
+      return winner;
+    });
+
+    await runtime.start();
+    try {
+      await client.startOrchestration(instanceId, 'RaceDequeue', null);
+      await new Promise((r) => setTimeout(r, 500));
+      // Pass object directly — enqueueEvent handles JSON.stringify internally
+      await client.enqueueEvent(instanceId, 'messages', { prompt: 'HELLO' });
+      const result = await client.waitForOrchestration(instanceId, 10000);
+
+      assert.strictEqual(result.status, 'Completed');
+      assert.strictEqual(result.output.index, 1);
+
+      // Before the fix, value was double-serialized: a string needing two JSON.parse() calls.
+      // After the fix, value is the properly parsed object after one parse.
+      assert.strictEqual(typeof result.output.value, 'object',
+        'race dequeue value should be an object, not a double-serialized string');
+      assert.deepStrictEqual(result.output.value, { prompt: 'HELLO' });
     } finally {
       await runtime.shutdown(100);
     }
@@ -213,5 +279,90 @@ describe('race() with mixed task types', () => {
     });
     assert.strictEqual(result.status, 'Completed');
     assert.strictEqual(result.output.index, 0);
+  });
+});
+
+// ─── Type preservation through all() and race() ─────────────────
+
+describe('type preservation', () => {
+  it('all() preserves all value types (string, number, object, array, null, boolean)', async () => {
+    const result = await runOrchestration('AllTypes', null, (rt) => {
+      rt.registerActivity('ReturnString', async () => 'hello');
+      rt.registerActivity('ReturnNumber', async () => 42);
+      rt.registerActivity('ReturnObject', async () => ({ key: 'val' }));
+      rt.registerActivity('ReturnArray', async () => [1, 2, 3]);
+      rt.registerActivity('ReturnNull', async () => null);
+      rt.registerActivity('ReturnBool', async () => true);
+      rt.registerOrchestration('AllTypes', function* (ctx) {
+        return yield ctx.all([
+          ctx.scheduleActivity('ReturnString', null),
+          ctx.scheduleActivity('ReturnNumber', null),
+          ctx.scheduleActivity('ReturnObject', null),
+          ctx.scheduleActivity('ReturnArray', null),
+          ctx.scheduleActivity('ReturnNull', null),
+          ctx.scheduleActivity('ReturnBool', null),
+        ]);
+      });
+    });
+    assert.strictEqual(result.status, 'Completed');
+    const vals = result.output.map((r) => r.ok);
+
+    assert.strictEqual(vals[0], 'hello');
+    assert.strictEqual(typeof vals[0], 'string');
+
+    assert.strictEqual(vals[1], 42);
+    assert.strictEqual(typeof vals[1], 'number');
+
+    assert.deepStrictEqual(vals[2], { key: 'val' });
+    assert.strictEqual(typeof vals[2], 'object');
+
+    assert.deepStrictEqual(vals[3], [1, 2, 3]);
+    assert.ok(Array.isArray(vals[3]));
+
+    assert.strictEqual(vals[4], null);
+
+    assert.strictEqual(vals[5], true);
+    assert.strictEqual(typeof vals[5], 'boolean');
+  });
+
+  it('race() preserves all value types (string, number, object)', async () => {
+    // Test string
+    const r1 = await runOrchestration('RaceString', null, (rt) => {
+      rt.registerActivity('FastStr', async () => 'hello');
+      rt.registerOrchestration('RaceString', function* (ctx) {
+        return yield ctx.race(
+          ctx.scheduleActivity('FastStr', null),
+          ctx.scheduleTimer(60000),
+        );
+      });
+    });
+    assert.strictEqual(r1.output.value, 'hello');
+    assert.strictEqual(typeof r1.output.value, 'string');
+
+    // Test number
+    const r2 = await runOrchestration('RaceNumber', null, (rt) => {
+      rt.registerActivity('FastNum', async () => 42);
+      rt.registerOrchestration('RaceNumber', function* (ctx) {
+        return yield ctx.race(
+          ctx.scheduleActivity('FastNum', null),
+          ctx.scheduleTimer(60000),
+        );
+      });
+    });
+    assert.strictEqual(r2.output.value, 42);
+    assert.strictEqual(typeof r2.output.value, 'number');
+
+    // Test object
+    const r3 = await runOrchestration('RaceObject', null, (rt) => {
+      rt.registerActivity('FastObj', async () => ({ key: 'val' }));
+      rt.registerOrchestration('RaceObject', function* (ctx) {
+        return yield ctx.race(
+          ctx.scheduleActivity('FastObj', null),
+          ctx.scheduleTimer(60000),
+        );
+      });
+    });
+    assert.deepStrictEqual(r3.output.value, { key: 'val' });
+    assert.strictEqual(typeof r3.output.value, 'object');
   });
 });

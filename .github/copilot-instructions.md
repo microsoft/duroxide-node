@@ -4,6 +4,15 @@
 >
 > Always ask before committing or pushing. Never assume.
 
+## ⚠️ SDK Symmetry — duroxide-node & duroxide-python MUST stay in sync
+
+When making changes to this SDK, **always** check `../duroxide-python` for symmetry:
+1. **Bug fixes**: If you fix a bug here, apply the same fix in duroxide-python (and vice versa)
+2. **API parity**: Every public API in one SDK must have an equivalent in the other (adjusted for language idioms — camelCase in JS, snake_case in Python)
+3. **Test parity**: Every test in one SDK must have a corresponding test in the other
+4. **Feature parity**: New duroxide features exposed in one SDK must be exposed in both
+5. **Rust handler code** (`src/handlers.rs`): Both SDKs share the same interop architecture — `execute_task`, `make_select_future`, `make_join_future` should be kept structurally identical
+
 ## Project Overview
 
 duroxide-node is a **Node.js/TypeScript SDK** for the [Duroxide](https://github.com/affandar/duroxide) durable execution runtime. It wraps the Rust runtime via [napi-rs](https://napi.rs), exposing generator-based orchestrations and async activities to JavaScript.
