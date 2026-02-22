@@ -158,6 +158,11 @@ export declare function orchestrationSetCustomStatus(instanceId: string, status:
 /** Reset (clear) custom status on an orchestration context (fire-and-forget, no yield needed). */
 export declare function orchestrationResetCustomStatus(instanceId: string): void
 /**
+ * Read the current custom status value from an orchestration context.
+ * Returns null if no custom status has been set.
+ */
+export declare function orchestrationGetCustomStatus(instanceId: string): string | null
+/**
  * Options for `initTracing`. Call before `runtime.start()` to direct
  * Rust tracing output to a file instead of stdout.
  */

@@ -706,7 +706,104 @@ describe('metrics snapshot', () => {
   });
 });
 
-// ─── 21. SQLite Smoketest ────────────────────────────────────────
+// ─── 21. Custom Status Getter ────────────────────────────────────
+
+describe('custom status getter', () => {
+  it('custom status get reflects set across turns', async () => {
+    const instanceId = uid('cs-getter');
+    const runtime = new Runtime(provider, { dispatcherPollIntervalMs: 50 });
+
+    runtime.registerActivity('Echo', async (ctx, input) => input);
+
+    runtime.registerOrchestration('GetterTest', function* (ctx, input) {
+      // Before any set, should be null
+      assert.strictEqual(ctx.getCustomStatus(), null, 'initial should be null');
+
+      ctx.setCustomStatus('step-1');
+      assert.strictEqual(ctx.getCustomStatus(), 'step-1', 'should reflect set immediately');
+
+      // Cross a turn boundary
+      yield ctx.scheduleActivity('Echo', 'ping');
+
+      // After replay, should still return 'step-1'
+      assert.strictEqual(ctx.getCustomStatus(), 'step-1', 'should survive replay across turns');
+
+      ctx.setCustomStatus('step-2');
+      assert.strictEqual(ctx.getCustomStatus(), 'step-2', 'should reflect second set');
+
+      return 'done';
+    });
+
+    await runtime.start();
+    const client = new Client(provider);
+    await client.startOrchestration(instanceId, 'GetterTest', '');
+
+    const result = await client.waitForOrchestration(instanceId, 10000);
+    assert.strictEqual(result.output, 'done');
+    assert.strictEqual(result.customStatus, 'step-2');
+
+    await runtime.shutdown(100);
+  });
+
+  it('custom status persists across continue-as-new and can be reset', async () => {
+    const instanceId = uid('cs-can');
+    const runtime = new Runtime(provider, { dispatcherPollIntervalMs: 50 });
+
+    runtime.registerActivity('Echo', async (ctx, input) => input);
+
+    runtime.registerOrchestration('StatusCanTest', function* (ctx, input) {
+      const generation = input.generation || 1;
+
+      if (generation === 1) {
+        // First generation: set status, verify, then CAN
+        assert.strictEqual(ctx.getCustomStatus(), null, 'gen1: initial should be null');
+        ctx.setCustomStatus('gen1-active');
+        assert.strictEqual(ctx.getCustomStatus(), 'gen1-active', 'gen1: should reflect set');
+
+        // Cross a turn boundary to ensure persistence
+        yield ctx.scheduleActivity('Echo', 'ping');
+        assert.strictEqual(ctx.getCustomStatus(), 'gen1-active', 'gen1: should survive turn');
+
+        // CAN — runtime carries forward custom status automatically
+        yield ctx.continueAsNew({ generation: 2 });
+        return null;
+      } else if (generation === 2) {
+        // Second generation: status should be carried forward from gen1
+        assert.strictEqual(ctx.getCustomStatus(), 'gen1-active', 'gen2: should inherit from gen1');
+
+        // Update status in gen2
+        ctx.setCustomStatus('gen2-updated');
+        assert.strictEqual(ctx.getCustomStatus(), 'gen2-updated', 'gen2: should reflect new set');
+
+        // Now reset it
+        ctx.resetCustomStatus();
+        assert.strictEqual(ctx.getCustomStatus(), null, 'gen2: should be null after reset');
+
+        // CAN again with no status
+        yield ctx.continueAsNew({ generation: 3 });
+        return null;
+      } else {
+        // Third generation: status should be null (was reset before CAN)
+        assert.strictEqual(ctx.getCustomStatus(), null, 'gen3: should be null after reset+CAN');
+
+        ctx.setCustomStatus('gen3-final');
+        return 'done';
+      }
+    });
+
+    await runtime.start();
+    const client = new Client(provider);
+    await client.startOrchestration(instanceId, 'StatusCanTest', { generation: 1 });
+
+    const result = await client.waitForOrchestration(instanceId, 15000);
+    assert.strictEqual(result.output, 'done');
+    assert.strictEqual(result.customStatus, 'gen3-final');
+
+    await runtime.shutdown(100);
+  });
+});
+
+// ─── 22. SQLite Smoketest ────────────────────────────────────────
 
 describe('sqlite smoketest', () => {
   it('runs a basic orchestration on SQLite', async () => {
@@ -733,7 +830,7 @@ describe('sqlite smoketest', () => {
   });
 });
 
-// ─── 22. initTracing ─────────────────────────────────────────────
+// ─── 23. initTracing ─────────────────────────────────────────────
 
 describe('initTracing', () => {
   it('is exported as a function', () => {

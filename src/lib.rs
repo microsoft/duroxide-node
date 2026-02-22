@@ -56,6 +56,13 @@ pub fn orchestration_reset_custom_status(instance_id: String) {
     handlers::orchestration_reset_custom_status(&instance_id);
 }
 
+/// Read the current custom status value from an orchestration context.
+/// Returns null if no custom status has been set.
+#[napi_derive::napi]
+pub fn orchestration_get_custom_status(instance_id: String) -> Option<String> {
+    handlers::orchestration_get_custom_status(&instance_id)
+}
+
 /// Options for `initTracing`. Call before `runtime.start()` to direct
 /// Rust tracing output to a file instead of stdout.
 #[napi_derive::napi(object)]

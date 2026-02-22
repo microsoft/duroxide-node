@@ -133,6 +133,12 @@ pub fn orchestration_reset_custom_status(instance_id: &str) {
     }
 }
 
+/// Called from JS to read the current custom status from the OrchestrationContext.
+pub fn orchestration_get_custom_status(instance_id: &str) -> Option<String> {
+    let map = ORCHESTRATION_CTXS.lock().unwrap();
+    map.get(instance_id).and_then(|ctx| ctx.get_custom_status())
+}
+
 // ─── Activity Bridge ─────────────────────────────────────────────
 
 /// Wraps a JS async function as a Rust ActivityHandler.

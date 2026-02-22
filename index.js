@@ -310,7 +310,7 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { JsClient, JsPostgresProvider, JsSqliteProvider, JsRuntime, activityTraceLog, orchestrationTraceLog, activityIsCancelled, activityGetClient, orchestrationSetCustomStatus, orchestrationResetCustomStatus, initTracing } = nativeBinding
+const { JsClient, JsPostgresProvider, JsSqliteProvider, JsRuntime, activityTraceLog, orchestrationTraceLog, activityIsCancelled, activityGetClient, orchestrationSetCustomStatus, orchestrationResetCustomStatus, orchestrationGetCustomStatus, initTracing } = nativeBinding
 
 module.exports.JsClient = JsClient
 module.exports.JsPostgresProvider = JsPostgresProvider
@@ -322,4 +322,5 @@ module.exports.activityIsCancelled = activityIsCancelled
 module.exports.activityGetClient = activityGetClient
 module.exports.orchestrationSetCustomStatus = orchestrationSetCustomStatus
 module.exports.orchestrationResetCustomStatus = orchestrationResetCustomStatus
+module.exports.orchestrationGetCustomStatus = orchestrationGetCustomStatus
 module.exports.initTracing = initTracing
