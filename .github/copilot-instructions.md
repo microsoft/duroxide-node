@@ -15,7 +15,7 @@ When making changes to this SDK, **always** check `../duroxide-python` for symme
 
 ## Project Overview
 
-duroxide-node is a **Node.js/TypeScript SDK** for the [Duroxide](https://github.com/affandar/duroxide) durable execution runtime. It wraps the Rust runtime via [napi-rs](https://napi.rs), exposing generator-based orchestrations and async activities to JavaScript.
+duroxide-node is a **Node.js/TypeScript SDK** for the [Duroxide](https://github.com/microsoft/duroxide) durable execution runtime. It wraps the Rust runtime via [napi-rs](https://napi.rs), exposing generator-based orchestrations and async activities to JavaScript.
 
 Key docs: `docs/architecture.md`, `docs/user-guide.md`.
 
