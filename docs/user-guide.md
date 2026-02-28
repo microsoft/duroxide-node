@@ -589,6 +589,40 @@ runtime.registerOrchestrationVersioned('MyWorkflow', '1.0.1', function* (ctx, in
 
 New orchestrations use the latest version. Running orchestrations stay on their original version until they complete or call `continueAsNew`.
 
+## Multi-Step Parallel Blocks (Sub-Orchestration Pattern)
+
+In Rust, arbitrary async blocks can be composed with `join()`/`select()`. In the Node.js SDK, `all()`/`race()` only accept single task descriptors — multi-step blocks must be wrapped as sub-orchestrations.
+
+```javascript
+// Pattern: wrap multi-step logic as a sub-orchestration
+runtime.registerOrchestration('BlockA', function* (ctx, input) {
+  const first = yield ctx.scheduleActivity('Step', 'A1');
+  if (first.includes('step')) {
+    const second = yield ctx.scheduleActivity('Step', 'A2');
+    return `A:[${first},${second}]`;
+  }
+  return 'A:fallback';
+});
+
+runtime.registerOrchestration('BlockB', function* (ctx, input) {
+  yield ctx.scheduleTimer(5);
+  const result = yield ctx.scheduleActivity('Step', 'B1');
+  return `B:[timer,${result}]`;
+});
+
+// Parent: join/race sub-orchestration descriptors
+runtime.registerOrchestration('Parent', function* (ctx, input) {
+  // Join multiple multi-step blocks
+  const [a, b] = yield ctx.all([
+    ctx.scheduleSubOrchestration('BlockA', ''),
+    ctx.scheduleSubOrchestration('BlockB', ''),
+  ]);
+  return `${a},${b}`;
+});
+```
+
+Use `all()` for joining (all must complete) and `race()` for racing (first wins, loser is cancelled). For 3+ way races, nest `race()` calls. See `async_blocks.test.js` for 12 examples covering join, race, nested chains, and timeout patterns.
+
 ## Determinism Rules
 
 Orchestration functions **must be deterministic**. The replay engine re-executes the generator from the beginning on every dispatch, feeding back cached results. If the code path changes, replay breaks.

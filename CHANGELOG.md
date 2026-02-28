@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.10] - 2026-02-28
+
+### Added
+- Typed APIs parity pass: typed scheduling/wait/event/dequeue variants and typed-path tests.
+- Async block and advanced-feature parity suites integrated into default test scripts.
+
+### Changed
+- Unified schedule/whenAll/whenAny terminology across docs and examples.
+- Refactored .NET/Java parity alignment and cross-SDK test consistency.
+
+
 ## [0.1.9] - 2026-02-21
 
 ### Added

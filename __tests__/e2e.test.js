@@ -830,7 +830,224 @@ describe('sqlite smoketest', () => {
   });
 });
 
-// ─── 23. initTracing ─────────────────────────────────────────────
+// ─── 23. Detached orchestration scheduling ───────────────────────
+
+describe('detached orchestration scheduling', () => {
+  it('fires-and-forgets two children and returns immediately', async () => {
+    const client = new Client(provider);
+    const runtime = new Runtime(provider, { dispatcherPollIntervalMs: 50 });
+
+    runtime.registerActivity('Echo', async (ctx, input) => input);
+
+    runtime.registerOrchestration('Chained', function* (ctx, input) {
+      yield ctx.scheduleTimer(5);
+      return yield ctx.scheduleActivity('Echo', input);
+    });
+
+    runtime.registerOrchestration('Coordinator', function* (ctx) {
+      yield ctx.startOrchestration('Chained', uid('W1'), 'A');
+      yield ctx.startOrchestration('Chained', uid('W2'), 'B');
+      return 'scheduled';
+    });
+
+    await runtime.start();
+    try {
+      const coordId = uid('Coordinator');
+      await client.startOrchestration(coordId, 'Coordinator', null);
+      const coordResult = await client.waitForOrchestration(coordId, 10_000);
+      assert.strictEqual(coordResult.status, 'Completed');
+      assert.strictEqual(coordResult.output, 'scheduled');
+
+      const w1 = await client.waitForOrchestration(uid('W1'), 10_000);
+      assert.strictEqual(w1.status, 'Completed');
+      assert.strictEqual(w1.output, 'A');
+
+      const w2 = await client.waitForOrchestration(uid('W2'), 10_000);
+      assert.strictEqual(w2.status, 'Completed');
+      assert.strictEqual(w2.output, 'B');
+    } finally {
+      await runtime.shutdown(100);
+    }
+  });
+});
+
+// ─── 24. Detached then activity ──────────────────────────────────
+
+describe('detached then activity', () => {
+  it('parent fires-and-forgets child then awaits activity', async () => {
+    const client = new Client(provider);
+    const runtime = new Runtime(provider, { dispatcherPollIntervalMs: 50 });
+
+    runtime.registerActivity('DetachedEcho', async (ctx, input) => input);
+
+    runtime.registerOrchestration('DetachedChild', function* (ctx, input) {
+      yield ctx.scheduleTimer(5);
+      return `child-${input}`;
+    });
+
+    runtime.registerOrchestration('DetachedParent', function* (ctx, input) {
+      yield ctx.startOrchestration('DetachedChild', uid('detached-child'), 'payload');
+      return yield ctx.scheduleActivity('DetachedEcho', 'hello');
+    });
+
+    await runtime.start();
+    try {
+      const parentId = uid('DetachedParent');
+      await client.startOrchestration(parentId, 'DetachedParent', null);
+      const parentResult = await client.waitForOrchestration(parentId, 10_000);
+      assert.strictEqual(parentResult.status, 'Completed');
+      assert.strictEqual(parentResult.output, 'hello');
+
+      const childResult = await client.waitForOrchestration(uid('detached-child'), 10_000);
+      assert.strictEqual(childResult.status, 'Completed');
+      assert.strictEqual(childResult.output, 'child-payload');
+    } finally {
+      await runtime.shutdown(100);
+    }
+  });
+});
+
+// ─── 25. Self-pruning eternal orchestration ──────────────────────
+
+describe('self-pruning eternal orchestration', () => {
+  it('processes batches with CAN and prunes old executions', async () => {
+    const client = new Client(provider);
+    const runtime = new Runtime(provider, { dispatcherPollIntervalMs: 50 });
+
+    runtime.registerActivity('ProcessBatch', async (ctx, input) => {
+      return `Processed batch ${input}`;
+    });
+
+    runtime.registerActivity('PruneSelf', async (ctx, input) => {
+      const actClient = ctx.getClient();
+      await actClient.pruneExecutions(ctx.instanceId, { keepLast: 1 });
+      return 'pruned';
+    });
+
+    runtime.registerOrchestration('EternalPruner', function* (ctx, input) {
+      const state = typeof input === 'string' ? JSON.parse(input) : input;
+      const { batchNum, totalBatches } = state;
+
+      const batchResult = yield ctx.scheduleActivity('ProcessBatch', batchNum);
+      yield ctx.scheduleActivity('PruneSelf', null);
+
+      if (batchNum >= totalBatches - 1) {
+        return `Completed ${totalBatches} batches, last: ${batchResult}`;
+      }
+      yield ctx.continueAsNew(JSON.stringify({ batchNum: batchNum + 1, totalBatches }));
+    });
+
+    await runtime.start();
+    try {
+      const instanceId = uid('EternalPruner');
+      await client.startOrchestration(
+        instanceId,
+        'EternalPruner',
+        JSON.stringify({ batchNum: 0, totalBatches: 5 })
+      );
+      const result = await client.waitForOrchestration(instanceId, 30_000);
+      assert.strictEqual(result.status, 'Completed');
+      assert.ok(
+        result.output.includes('Completed 5 batches'),
+        `expected output to mention 5 batches, got: ${result.output}`
+      );
+    } finally {
+      await runtime.shutdown(100);
+    }
+  });
+});
+
+// ─── 26. Config hot reload with persistent events ────────────────
+
+describe('config hot reload with persistent events', () => {
+  it('drains enqueued events between processing cycles', async () => {
+    const client = new Client(provider);
+    const runtime = new Runtime(provider, { dispatcherPollIntervalMs: 50 });
+
+    runtime.registerActivity('ApplyConfig', async (ctx, input) => `applied:${input}`);
+
+    runtime.registerOrchestration('ConfigHotReload', function* (ctx) {
+      const log = [];
+
+      for (let i = 0; i < 3; i++) {
+        // Drain pending ConfigUpdate events (non-blocking via race with short timer)
+        let draining = true;
+        while (draining) {
+          const raceResult = yield ctx.race(
+            ctx.dequeueEvent('ConfigUpdate'),
+            ctx.scheduleTimer(50)
+          );
+          if (raceResult.index === 0) {
+            const applied = yield ctx.scheduleActivity('ApplyConfig', raceResult.value);
+            log.push(applied);
+          } else {
+            draining = false;
+          }
+        }
+
+        // Simulate work cycle
+        yield ctx.scheduleTimer(100);
+        log.push(`cycle:${i}`);
+      }
+
+      // Final drain
+      let finalDrain = true;
+      while (finalDrain) {
+        const raceResult = yield ctx.race(
+          ctx.dequeueEvent('ConfigUpdate'),
+          ctx.scheduleTimer(50)
+        );
+        if (raceResult.index === 0) {
+          const applied = yield ctx.scheduleActivity('ApplyConfig', raceResult.value);
+          log.push(applied);
+        } else {
+          finalDrain = false;
+        }
+      }
+
+      return log.join(',');
+    });
+
+    // Enqueue v1 and v2 BEFORE starting the orchestration
+    const instanceId = uid('ConfigHotReload');
+    await client.startOrchestration(instanceId, 'ConfigHotReload', null);
+    await client.enqueueEvent(instanceId, 'ConfigUpdate', 'v1');
+    await client.enqueueEvent(instanceId, 'ConfigUpdate', 'v2');
+
+    await runtime.start();
+
+    // Let some cycles complete, then enqueue v3
+    await new Promise((r) => setTimeout(r, 300));
+    await client.enqueueEvent(instanceId, 'ConfigUpdate', 'v3');
+
+    try {
+      const result = await client.waitForOrchestration(instanceId, 30_000);
+      assert.strictEqual(result.status, 'Completed');
+      const output = result.output;
+
+      // All configs should be applied
+      assert.ok(output.includes('applied:v1'), `expected applied:v1, got: ${output}`);
+      assert.ok(output.includes('applied:v2'), `expected applied:v2, got: ${output}`);
+      assert.ok(output.includes('applied:v3'), `expected applied:v3, got: ${output}`);
+
+      // All cycles should run
+      assert.ok(output.includes('cycle:0'), `expected cycle:0, got: ${output}`);
+      assert.ok(output.includes('cycle:1'), `expected cycle:1, got: ${output}`);
+      assert.ok(output.includes('cycle:2'), `expected cycle:2, got: ${output}`);
+
+      // v1 and v2 should appear before cycle:0
+      const v1Pos = output.indexOf('applied:v1');
+      const v2Pos = output.indexOf('applied:v2');
+      const cycle0Pos = output.indexOf('cycle:0');
+      assert.ok(v1Pos < cycle0Pos, `v1 should appear before cycle:0`);
+      assert.ok(v2Pos < cycle0Pos, `v2 should appear before cycle:0`);
+    } finally {
+      await runtime.shutdown(100);
+    }
+  });
+});
+
+// ─── 27. initTracing ─────────────────────────────────────────────
 
 describe('initTracing', () => {
   it('is exported as a function', () => {
@@ -855,5 +1072,131 @@ describe('initTracing', () => {
       () => initTracing({ logFile: '/nonexistent-dir/sub/test.log' }),
       (err) => err.message.includes('Failed to open log file'),
     );
+  });
+});
+
+// ─── 28. Typed API ───────────────────────────────────────────────
+
+describe('typed API', () => {
+  it('typed activity round-trip', async () => {
+    const result = await runOrchestration('TypedActivityRT', { name: 'Alice', age: 30 }, (rt) => {
+      rt.registerActivity('TypedEcho', async (ctx, input) => {
+        ctx.traceInfo(`typed echo: ${JSON.stringify(input)}`);
+        return { greeting: `Hello, ${input.name}!`, age: input.age + 1 };
+      });
+      rt.registerOrchestration('TypedActivityRT', function* (ctx, input) {
+        const result = yield ctx.scheduleActivityTyped('TypedEcho', input);
+        // result should be an auto-parsed object, not a string
+        return result;
+      });
+    });
+    assert.strictEqual(result.status, 'Completed');
+    assert.strictEqual(typeof result.output, 'object');
+    assert.strictEqual(result.output.greeting, 'Hello, Alice!');
+    assert.strictEqual(result.output.age, 31);
+  });
+
+  it('typed all returns parsed results', async () => {
+    const result = await runOrchestration('TypedAll', null, (rt) => {
+      rt.registerActivity('TypedMakeObj', async (ctx, input) => {
+        return { value: input.x * 10 };
+      });
+      rt.registerOrchestration('TypedAll', function* (ctx) {
+        const a = ctx.scheduleActivityTyped('TypedMakeObj', { x: 1 });
+        const b = ctx.scheduleActivityTyped('TypedMakeObj', { x: 2 });
+        const results = yield ctx.allTyped([a, b]);
+        // Each result.ok should be a parsed object
+        return results.map((r) => r.ok.value);
+      });
+    });
+    assert.strictEqual(result.status, 'Completed');
+    assert.deepStrictEqual(result.output.sort(), [10, 20]);
+  });
+
+  it('typed race returns parsed winner', async () => {
+    const result = await runOrchestration('TypedRace', null, (rt) => {
+      rt.registerActivity('TypedFast', async (ctx, input) => {
+        return { winner: true, v: input.v };
+      });
+      rt.registerOrchestration('TypedRace', function* (ctx) {
+        const winner = yield ctx.raceTyped(
+          ctx.scheduleActivityTyped('TypedFast', { v: 42 }),
+          ctx.scheduleTimer(5000),
+        );
+        // winner.value should be a parsed object
+        return winner.value;
+      });
+    });
+    assert.strictEqual(result.status, 'Completed');
+    assert.strictEqual(typeof result.output, 'object');
+    assert.strictEqual(result.output.winner, true);
+    assert.strictEqual(result.output.v, 42);
+  });
+
+  it('typed sub-orchestration round-trip', async () => {
+    const result = await runOrchestration('TypedSubOrchParent', { msg: 'world' }, (rt) => {
+      rt.registerOrchestration('TypedSubOrchChild', function* (ctx, input) {
+        return { reply: `hello ${input.msg}` };
+      });
+      rt.registerOrchestration('TypedSubOrchParent', function* (ctx, input) {
+        const childResult = yield ctx.scheduleSubOrchestrationTyped('TypedSubOrchChild', input);
+        return childResult;
+      });
+    });
+    assert.strictEqual(result.status, 'Completed');
+    assert.strictEqual(typeof result.output, 'object');
+    assert.strictEqual(result.output.reply, 'hello world');
+  });
+});
+
+// ─── All Composition Edge Cases ──────────────────────────────────
+
+describe('all composition edge cases', () => {
+  it('all with mixed activity and timer', async () => {
+    const result = await runOrchestration('AllMixed', null, (rt) => {
+      rt.registerActivity('SlowWork', async (ctx, input) => `done-${input}`);
+      rt.registerOrchestration('AllMixed', function* (ctx) {
+        const results = yield ctx.all([
+          ctx.scheduleActivity('SlowWork', 'task'),
+          ctx.scheduleTimer(50),
+        ]);
+        return {
+          activity: results[0].ok,
+          timer: results[1].ok,
+        };
+      });
+    });
+    assert.strictEqual(result.status, 'Completed');
+    assert.strictEqual(result.output.activity, 'done-task');
+    assert.strictEqual(result.output.timer, null);
+  });
+
+  it('all with dynamic fan-out', async () => {
+    const result = await runOrchestration('AllDynamic', [2, 3, 5], (rt) => {
+      rt.registerActivity('Square', async (ctx, input) => input * input);
+      rt.registerOrchestration('AllDynamic', function* (ctx, input) {
+        const tasks = input.map((n) => ctx.scheduleActivity('Square', n));
+        const results = yield ctx.all(tasks);
+        return results.map((r) => r.ok);
+      });
+    });
+    assert.strictEqual(result.status, 'Completed');
+    assert.deepStrictEqual(result.output, [4, 9, 25]);
+  });
+
+  it('race activity vs long timer', async () => {
+    const result = await runOrchestration('RaceQuick', null, (rt) => {
+      rt.registerActivity('Quick', async (ctx, input) => 'fast-result');
+      rt.registerOrchestration('RaceQuick', function* (ctx) {
+        const winner = yield ctx.race(
+          ctx.scheduleActivity('Quick', null),
+          ctx.scheduleTimer(60000),
+        );
+        return winner;
+      });
+    });
+    assert.strictEqual(result.status, 'Completed');
+    assert.strictEqual(result.output.index, 0);
+    assert.strictEqual(result.output.value, 'fast-result');
   });
 });

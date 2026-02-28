@@ -340,6 +340,41 @@ All JS callbacks (generator steps, activity functions) run on the Node.js main t
 - Generator steps are synchronous blocking calls from Rust's perspective
 - Heavy computation in activities will block other JS callbacks
 
+### Multi-Step Parallel Blocks Require Sub-Orchestrations
+
+In the Rust core SDK, arbitrary `async {}` blocks can be composed with `join()`/`select2()`/`select3()`. In the Node.js SDK, orchestrations are generator functions — `all()` and `race()` only accept **single task descriptors** (activity, sub-orchestration, timer, or event). Multi-step blocks (sequential activities with control flow) cannot be directly passed to `all()`/`race()`.
+
+**Workaround**: Wrap each multi-step block as a sub-orchestration, then use `all()`/`race()` on the sub-orchestration descriptors.
+
+```javascript
+// ❌ Cannot race multi-step blocks directly
+// (each yield is a single step — no block composition)
+
+// ✅ Wrap blocks as sub-orchestrations
+runtime.registerOrchestration('FastBlock', function* (ctx, input) {
+  const a = yield ctx.scheduleActivity('Fast', '1');
+  const b = yield ctx.scheduleActivity('Fast', '2');
+  return `[${a},${b}]`;
+});
+
+runtime.registerOrchestration('SlowBlock', function* (ctx, input) {
+  yield ctx.scheduleTimer(60000);
+  const a = yield ctx.scheduleActivity('Slow', '1');
+  return `[${a}]`;
+});
+
+runtime.registerOrchestration('Parent', function* (ctx, input) {
+  // Race two multi-step blocks via sub-orchestrations
+  const winner = yield ctx.race(
+    ctx.scheduleSubOrchestration('FastBlock', ''),
+    ctx.scheduleSubOrchestration('SlowBlock', ''),
+  );
+  return `winner:${winner.index}`;
+});
+```
+
+This is the **only fundamental limitation** vs the Rust core — all other features (typed APIs, cancellation propagation, etc.) have full parity. See the `async_blocks.test.js` tests for 12 comprehensive examples of this pattern.
+
 ### select/race Supports 2 Tasks
 
 `ctx.race()` currently supports exactly 2 tasks (maps to `select2` in Rust). More tasks require nesting or a future `selectN` implementation.

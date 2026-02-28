@@ -215,7 +215,112 @@ describe('session: worker node id', () => {
   });
 });
 
-// ─── 10. SQLite session smoketest ─────────────────────────────────
+// ─── 10. Session fan-out mixed with regular in join ───────────────
+
+describe('session: fan-out mixed with regular in join', () => {
+  it('joins 2 session + 2 regular activities preserving order', async () => {
+    const result = await runSessionTest('SessionFanMixed', null, (rt) => {
+      rt.registerActivity('SessionWork', async (ctx, input) => `sess:${input}`);
+      rt.registerActivity('RegularWork', async (ctx, input) => `reg:${input}`);
+      rt.registerOrchestration('SessionFanMixed', function* (ctx) {
+        const results = yield ctx.all([
+          ctx.scheduleActivityOnSession('SessionWork', 'a', 's1'),
+          ctx.scheduleActivity('RegularWork', 'b'),
+          ctx.scheduleActivityOnSession('SessionWork', 'c', 's2'),
+          ctx.scheduleActivity('RegularWork', 'd'),
+        ]);
+        return results.map((r) => r.ok);
+      });
+    });
+    assert.strictEqual(result.status, 'Completed');
+    assert.deepStrictEqual(result.output, ['sess:a', 'reg:b', 'sess:c', 'reg:d']);
+  });
+});
+
+// ─── 11. Multiple activities per session mixed with non-session ──
+
+describe('session: multiple activities per session mixed', () => {
+  it('joins 6 tasks: 2 on session-1, 2 on session-2, 2 non-session', async () => {
+    const result = await runSessionTest('SessionMultiMixed', null, (rt) => {
+      rt.registerActivity('Tag', async (ctx, input) => `tag:${input}`);
+      rt.registerOrchestration('SessionMultiMixed', function* (ctx) {
+        const results = yield ctx.all([
+          ctx.scheduleActivityOnSession('Tag', 's1-a', 'session-1'),
+          ctx.scheduleActivityOnSession('Tag', 's1-b', 'session-1'),
+          ctx.scheduleActivityOnSession('Tag', 's2-a', 'session-2'),
+          ctx.scheduleActivityOnSession('Tag', 's2-b', 'session-2'),
+          ctx.scheduleActivity('Tag', 'no-sess-a'),
+          ctx.scheduleActivity('Tag', 'no-sess-b'),
+        ]);
+        return results.map((r) => r.ok).join('|');
+      });
+    }, { workerNodeId: 'test-pod-multi' });
+    assert.strictEqual(result.status, 'Completed');
+    assert.strictEqual(
+      result.output,
+      'tag:s1-a|tag:s1-b|tag:s2-a|tag:s2-b|tag:no-sess-a|tag:no-sess-b'
+    );
+  });
+});
+
+// ─── 12. Session survives continue-as-new ────────────────────────
+
+describe('session: survives continue-as-new', () => {
+  it('session routing works across CAN boundaries', async () => {
+    const result = await runSessionTest('SessionCAN', '0', (rt) => {
+      rt.registerActivity('Track', async (ctx, input) => `tracked:${input}`);
+      rt.registerOrchestration('SessionCAN', function* (ctx, input) {
+        const iteration = typeof input === 'string' ? parseInt(input, 10) : (input || 0);
+        const r = yield ctx.scheduleActivityOnSession('Track', `iter-${iteration}`, 'persistent-session');
+        if (iteration === 0) {
+          yield ctx.continueAsNew('1');
+        } else {
+          return r;
+        }
+      });
+    });
+    assert.strictEqual(result.status, 'Completed');
+    assert.strictEqual(result.output, 'tracked:iter-1');
+  });
+});
+
+// ─── 13. Session survives versioned CAN upgrade ──────────────────
+
+describe('session: survives versioned continue-as-new upgrade', () => {
+  it('v1 does session work then CAN to v2 which returns combined result', async () => {
+    const client = new Client(provider);
+    const runtime = new Runtime(provider, {
+      dispatcherPollIntervalMs: 50,
+    });
+
+    runtime.registerActivity('Work', async (ctx, input) => `done:${input}`);
+
+    // v1: do session activity, then CAN versioned to v2 passing result
+    runtime.registerOrchestration('SessionVerCAN', function* (ctx, input) {
+      const r = yield ctx.scheduleActivityOnSession('Work', 'from-v1', 'upgrade-session');
+      yield ctx.continueAsNewVersioned(r, '2.0.0');
+    });
+
+    // v2: do session activity, return combined
+    runtime.registerOrchestrationVersioned('SessionVerCAN', '2.0.0', function* (ctx, input) {
+      const r = yield ctx.scheduleActivityOnSession('Work', 'from-v2', 'upgrade-session');
+      return `${input}+${r}`;
+    });
+
+    await runtime.start();
+    try {
+      const instanceId = uid('SessionVerCAN');
+      await client.startOrchestrationVersioned(instanceId, 'SessionVerCAN', null, '1.0.0');
+      const result = await client.waitForOrchestration(instanceId, 15_000);
+      assert.strictEqual(result.status, 'Completed');
+      assert.strictEqual(result.output, 'done:from-v1+done:from-v2');
+    } finally {
+      await runtime.shutdown(100);
+    }
+  });
+});
+
+// ─── 14. SQLite session smoketest ─────────────────────────────────
 
 describe('session: sqlite smoketest', () => {
   it('session activities work with SQLite provider', async () => {

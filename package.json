@@ -1,9 +1,9 @@
 {
   "name": "duroxide",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Durable execution runtime for Node.js, powered by Rust",
   "main": "lib/duroxide.js",
-  "types": "index.d.ts",
+  "types": "lib/duroxide.d.ts",
   "napi": {
     "name": "duroxide",
     "triples": {
@@ -18,12 +18,16 @@
     "build": "napi build --platform --release",
     "build:debug": "napi build --platform",
     "prepublishOnly": "napi prepublish -t npm",
-    "test": "node --test __tests__/e2e.test.js",
+    "test": "node --test __tests__/e2e.test.js __tests__/races.test.js __tests__/admin_api.test.js __tests__/sessions.test.js __tests__/advanced_features.test.js __tests__/async_blocks.test.js __tests__/typed_apis.test.js __tests__/copilot_chat.test.js",
     "test:races": "node --test __tests__/races.test.js",
     "test:admin": "node --test __tests__/admin_api.test.js",
     "test:scenarios": "node --test __tests__/scenarios/*.test.js",
     "test:sessions": "node --test __tests__/sessions.test.js",
-    "test:all": "node --test __tests__/e2e.test.js __tests__/races.test.js __tests__/admin_api.test.js __tests__/scenarios/*.test.js __tests__/sessions.test.js",
+    "test:advanced": "node --test __tests__/advanced_features.test.js",
+    "test:async-blocks": "node --test __tests__/async_blocks.test.js",
+    "test:typed": "node --test __tests__/typed_apis.test.js",
+    "test:chat": "node --test __tests__/copilot_chat.test.js",
+    "test:all": "node --test __tests__/e2e.test.js __tests__/races.test.js __tests__/admin_api.test.js __tests__/sessions.test.js __tests__/advanced_features.test.js __tests__/async_blocks.test.js __tests__/typed_apis.test.js __tests__/copilot_chat.test.js __tests__/scenarios/*.test.js",
     "version": "napi version"
   },
   "devDependencies": {
@@ -35,10 +39,10 @@
     "node": ">= 18"
   },
   "optionalDependencies": {
-    "duroxide-win32-x64-msvc": "0.1.9",
-    "duroxide-darwin-x64": "0.1.9",
-    "duroxide-linux-x64-gnu": "0.1.9",
-    "duroxide-darwin-arm64": "0.1.9"
+    "duroxide-win32-x64-msvc": "0.1.10",
+    "duroxide-darwin-x64": "0.1.10",
+    "duroxide-linux-x64-gnu": "0.1.10",
+    "duroxide-darwin-arm64": "0.1.10"
   },
   "files": [
     "index.js",
