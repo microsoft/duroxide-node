@@ -44,6 +44,13 @@ pub fn activity_get_client(token: String) -> Option<JsClient> {
     handlers::activity_get_client(&token)
 }
 
+/// Get the routing tag from an activity context.
+/// Returns null if the activity was scheduled without a tag.
+#[napi_derive::napi]
+pub fn activity_tag(token: String) -> Option<String> {
+    handlers::activity_tag(&token)
+}
+
 /// Set custom status on an orchestration context (fire-and-forget, no yield needed).
 #[napi_derive::napi]
 pub fn orchestration_set_custom_status(instance_id: String, status: String) {

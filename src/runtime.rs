@@ -8,6 +8,7 @@ use duroxide::runtime::{self, OrchestrationRegistry};
 use duroxide::runtime::OrchestrationHandler;
 
 use duroxide::runtime::LogFormat;
+use duroxide::providers::TagFilter;
 
 use crate::handlers::{JsActivityHandler, JsOrchestrationHandler};
 use crate::provider::JsSqliteProvider;
@@ -41,6 +42,11 @@ pub struct JsRuntimeOptions {
     pub session_idle_timeout_ms: Option<i64>,
     /// Stable worker identity for session ownership (e.g., K8s pod name)
     pub worker_node_id: Option<String>,
+    /// Worker tag filter mode: "defaultOnly" (default), "any", "none", "tags", or "defaultAnd".
+    /// When "tags" or "defaultAnd", provide the tag list in `worker_tag_filter_tags`.
+    pub worker_tag_filter: Option<String>,
+    /// Tag list for "tags" or "defaultAnd" filter modes.
+    pub worker_tag_filter_tags: Option<Vec<String>>,
 }
 
 /// Builder for the duroxide runtime, wrapping registration and startup.
@@ -216,6 +222,22 @@ impl JsRuntime {
             }
             if let Some(ref nid) = opts.worker_node_id {
                 rt_options.worker_node_id = Some(nid.clone());
+            }
+            if let Some(ref filter) = opts.worker_tag_filter {
+                rt_options.worker_tag_filter = match filter.as_str() {
+                    "defaultOnly" => TagFilter::DefaultOnly,
+                    "any" => TagFilter::Any,
+                    "none" => TagFilter::None,
+                    "tags" => {
+                        let tags = opts.worker_tag_filter_tags.clone().unwrap_or_default();
+                        TagFilter::Tags(tags.into_iter().collect())
+                    }
+                    "defaultAnd" => {
+                        let tags = opts.worker_tag_filter_tags.clone().unwrap_or_default();
+                        TagFilter::DefaultAnd(tags.into_iter().collect())
+                    }
+                    _ => TagFilter::DefaultOnly,
+                };
             }
         }
 

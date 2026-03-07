@@ -46,6 +46,12 @@ pub fn activity_get_client(token: &str) -> Option<JsClient> {
     map.get(token).map(|ctx| JsClient::from_client(ctx.get_client()))
 }
 
+/// Called from JS to get the routing tag from the ActivityContext.
+pub fn activity_tag(token: &str) -> Option<String> {
+    let map = ACTIVITY_CTXS.lock();
+    map.get(token).and_then(|ctx| ctx.tag().map(|s| s.to_string()))
+}
+
 /// Called from JS to trace through the Rust ActivityContext.
 pub fn activity_trace(token: &str, level: &str, message: &str) {
     let map = ACTIVITY_CTXS.lock();
@@ -167,6 +173,7 @@ impl JsActivityHandler {
             "activityName": ctx.activity_name(),
             "workerId": ctx.worker_id(),
             "sessionId": ctx.session_id(),
+            "tag": ctx.tag(),
             "_traceToken": token,
         });
 
@@ -283,13 +290,18 @@ impl JsOrchestrationHandler {
         task: ScheduledTask,
     ) -> TaskResult {
         match task {
-            ScheduledTask::Activity { name, input, session_id } => {
-                let result = if let Some(sid) = session_id {
-                    ctx.schedule_activity_on_session(&name, input, sid).await
+            ScheduledTask::Activity { name, input, session_id, tag } => {
+                let future = if let Some(sid) = session_id {
+                    ctx.schedule_activity_on_session(&name, input, sid)
                 } else {
-                    ctx.schedule_activity(&name, input).await
+                    ctx.schedule_activity(&name, input)
                 };
-                match result {
+                let future = if let Some(t) = tag {
+                    future.with_tag(t)
+                } else {
+                    future
+                };
+                match future.await {
                     Ok(val) => TaskResult::Ok(val),
                     Err(err) => TaskResult::Err(err),
                 }
@@ -485,14 +497,19 @@ fn make_select_future(
     task: ScheduledTask,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = String> + Send + '_>> {
     match task {
-        ScheduledTask::Activity { name, input, session_id } => {
+        ScheduledTask::Activity { name, input, session_id, tag } => {
             Box::pin(async move {
-                let result = if let Some(sid) = session_id {
-                    ctx.schedule_activity_on_session(&name, input, sid).await
+                let future = if let Some(sid) = session_id {
+                    ctx.schedule_activity_on_session(&name, input, sid)
                 } else {
-                    ctx.schedule_activity(&name, input).await
+                    ctx.schedule_activity(&name, input)
                 };
-                match result {
+                let future = if let Some(t) = tag {
+                    future.with_tag(t)
+                } else {
+                    future
+                };
+                match future.await {
                     Ok(v) => v,
                     Err(e) => e,
                 }
@@ -585,14 +602,19 @@ fn make_join_future(
     task: ScheduledTask,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = String> + Send + '_>> {
     match task {
-        ScheduledTask::Activity { name, input, session_id } => {
+        ScheduledTask::Activity { name, input, session_id, tag } => {
             Box::pin(async move {
-                let result = if let Some(sid) = session_id {
-                    ctx.schedule_activity_on_session(&name, input, sid).await
+                let future = if let Some(sid) = session_id {
+                    ctx.schedule_activity_on_session(&name, input, sid)
                 } else {
-                    ctx.schedule_activity(&name, input).await
+                    ctx.schedule_activity(&name, input)
                 };
-                match result {
+                let future = if let Some(t) = tag {
+                    future.with_tag(t)
+                } else {
+                    future
+                };
+                match future.await {
                     Ok(v) => wrap_ok(v),
                     Err(e) => wrap_err(e),
                 }

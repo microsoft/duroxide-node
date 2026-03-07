@@ -69,7 +69,7 @@ switch (platform) {
           if (localFileExisted) {
             nativeBinding = require('./duroxide.win32-x64-msvc.node')
           } else {
-            nativeBinding = require('duroxide-windows-x64')
+            nativeBinding = require('duroxide-win32-x64-msvc')
           }
         } catch (e) {
           loadError = e
@@ -310,7 +310,7 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { JsClient, JsPostgresProvider, JsSqliteProvider, JsRuntime, activityTraceLog, orchestrationTraceLog, activityIsCancelled, activityGetClient, orchestrationSetCustomStatus, orchestrationResetCustomStatus, orchestrationGetCustomStatus, initTracing } = nativeBinding
+const { JsClient, JsPostgresProvider, JsSqliteProvider, JsRuntime, activityTraceLog, orchestrationTraceLog, activityIsCancelled, activityGetClient, activityTag, orchestrationSetCustomStatus, orchestrationResetCustomStatus, orchestrationGetCustomStatus, initTracing } = nativeBinding
 
 module.exports.JsClient = JsClient
 module.exports.JsPostgresProvider = JsPostgresProvider
@@ -320,6 +320,7 @@ module.exports.activityTraceLog = activityTraceLog
 module.exports.orchestrationTraceLog = orchestrationTraceLog
 module.exports.activityIsCancelled = activityIsCancelled
 module.exports.activityGetClient = activityGetClient
+module.exports.activityTag = activityTag
 module.exports.orchestrationSetCustomStatus = orchestrationSetCustomStatus
 module.exports.orchestrationResetCustomStatus = orchestrationResetCustomStatus
 module.exports.orchestrationGetCustomStatus = orchestrationGetCustomStatus

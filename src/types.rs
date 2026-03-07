@@ -14,6 +14,9 @@ pub enum ScheduledTask {
         #[serde(skip_serializing_if = "Option::is_none")]
         #[serde(default)]
         session_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default)]
+        tag: Option<String>,
     },
     #[serde(rename = "activityWithRetry")]
     ActivityWithRetry {

@@ -22,6 +22,8 @@ import {
 /** A scheduled task descriptor yielded from an orchestration generator. */
 export interface ScheduledTask {
   type: string;
+  /** Chain a routing tag on an activity task. Only valid for activity tasks. */
+  withTag?(tag: string): ScheduledTask;
   [key: string]: unknown;
 }
 
@@ -172,6 +174,9 @@ export declare class ActivityContext {
   readonly workerId: string;
   readonly sessionId: string | null;
 
+  /** Get the routing tag if this activity was scheduled with .withTag(). */
+  tag(): string | null;
+
   traceInfo(message: string): void;
   traceWarn(message: string): void;
   traceError(message: string): void;
@@ -230,9 +235,29 @@ export declare class Client {
   waitForOrchestrationTyped<TResult = unknown>(instanceId: string, timeoutMs?: number): Promise<TResult>;
 }
 
+/** Worker tag filter configuration for activity routing. */
+export type TagFilter =
+  | 'defaultOnly'
+  | 'any'
+  | 'none'
+  | { tags: string[] }
+  | { defaultAnd: string[] };
+
+/** Extended runtime options with user-friendly workerTagFilter. */
+export interface RuntimeOptions extends JsRuntimeOptions {
+  /** Worker tag filter for activity routing.
+   * - `"defaultOnly"` — only untagged activities (default)
+   * - `{ tags: ["gpu"] }` — only activities with specified tags
+   * - `{ defaultAnd: ["gpu"] }` — untagged plus specified tags
+   * - `"any"` — all activities regardless of tag
+   * - `"none"` — disable worker (orchestrator-only mode)
+   */
+  workerTagFilter?: TagFilter;
+}
+
 /** Durable execution runtime. */
 export declare class Runtime {
-  constructor(provider: SqliteProvider | PostgresProvider, options?: JsRuntimeOptions);
+  constructor(provider: SqliteProvider | PostgresProvider, options?: RuntimeOptions);
 
   registerActivity(name: string, fn: (ctx: ActivityContext, input: any) => Promise<any>): void;
   registerActivityTyped<TIn, TOut>(name: string, fn: (ctx: ActivityContext, input: TIn) => Promise<TOut>): void;

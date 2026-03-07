@@ -30,6 +30,13 @@ export interface JsRuntimeOptions {
   sessionIdleTimeoutMs?: number
   /** Stable worker identity for session ownership (e.g., K8s pod name) */
   workerNodeId?: string
+  /**
+   * Worker tag filter mode: "defaultOnly" (default), "any", "none", "tags", or "defaultAnd".
+   * When "tags" or "defaultAnd", provide the tag list in `worker_tag_filter_tags`.
+   */
+  workerTagFilter?: string
+  /** Tag list for "tags" or "defaultAnd" filter modes. */
+  workerTagFilterTags?: Array<string>
 }
 /** Orchestration status returned to JS. */
 export interface JsOrchestrationStatus {
@@ -153,6 +160,11 @@ export declare function orchestrationTraceLog(instanceId: string, level: string,
 export declare function activityIsCancelled(token: string): boolean
 /** Get a Client from an activity context, allowing activities to start new orchestrations. */
 export declare function activityGetClient(token: string): JsClient | null
+/**
+ * Get the routing tag from an activity context.
+ * Returns null if the activity was scheduled without a tag.
+ */
+export declare function activityTag(token: string): string | null
 /** Set custom status on an orchestration context (fire-and-forget, no yield needed). */
 export declare function orchestrationSetCustomStatus(instanceId: string, status: string): void
 /** Reset (clear) custom status on an orchestration context (fire-and-forget, no yield needed). */
