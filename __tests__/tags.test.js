@@ -110,6 +110,58 @@ describe('activity tags', () => {
     });
   });
 
+  it('defaultOnly rejects tagged activities (timer wins race)', async () => {
+    await withSqlite(async (provider) => {
+      const client = new Client(provider);
+      // No workerTagFilter → defaults to DefaultOnly
+      const runtime = new Runtime(provider, { dispatcherPollIntervalMs: 50 });
+
+      runtime.registerActivity('TaggedWork', async (ctx, input) => 'done');
+
+      runtime.registerOrchestration('DefaultOnlyOrch', function* (ctx) {
+        const activity = ctx.scheduleActivity('TaggedWork', 'data').withTag('gpu');
+        const timer = ctx.scheduleTimer(500);
+        const result = yield ctx.race(activity, timer);
+        if (result.index === 1) {
+          return 'timeout:no_gpu_worker';
+        }
+        return `completed:${result.value}`;
+      });
+
+      await runtime.start();
+      try {
+        await client.startOrchestration('default-only-1', 'DefaultOnlyOrch');
+        const result = await client.waitForOrchestration('default-only-1', 10000);
+        assert.strictEqual(result.status, 'Completed');
+        assert.strictEqual(result.output, 'timeout:no_gpu_worker');
+      } finally {
+        await runtime.shutdown(100);
+      }
+    });
+  });
+
+  it('TagFilter values accepted by Runtime constructor', async () => {
+    await withSqlite(async (provider) => {
+      const filters = [
+        'any',
+        'none',
+        'defaultOnly',
+        { tags: ['gpu'] },
+        { defaultAnd: ['gpu'] },
+      ];
+      for (const workerTagFilter of filters) {
+        const runtime = new Runtime(provider, {
+          dispatcherPollIntervalMs: 50,
+          workerTagFilter,
+        });
+        // Constructed without throwing — register a no-op orch so start/shutdown are clean
+        runtime.registerOrchestration(`Noop_${JSON.stringify(workerTagFilter)}`, function* () {});
+        await runtime.start();
+        await runtime.shutdown(100);
+      }
+    });
+  });
+
   it('workerTagFilter "any" processes all activities', async () => {
     await withSqlite(async (provider) => {
       const client = new Client(provider);
