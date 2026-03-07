@@ -80,17 +80,22 @@ describe('activity tags', () => {
 
   it('withTag is chainable and returns the descriptor', async () => {
     await withSqlite(async (provider) => {
-      const runtime = new Runtime(provider, { dispatcherPollIntervalMs: 50 });
+      const runtime = new Runtime(provider, {
+        dispatcherPollIntervalMs: 50,
+        workerTagFilter: { defaultAnd: ['cpu'] },
+      });
       runtime.registerOrchestration('ChainTest', function* (ctx) {
-        const task = ctx.scheduleActivity('Noop', null);
+        const task = ctx.scheduleActivity('Echo', 'hello');
         const chained = task.withTag('cpu');
         // withTag returns the same descriptor (chainable)
         assert.strictEqual(task, chained);
         assert.strictEqual(task.tag, 'cpu');
-        return 'ok';
+        // Actually yield to execute the tagged activity e2e
+        const result = yield chained;
+        return result;
       });
 
-      runtime.registerActivity('Noop', async () => null);
+      runtime.registerActivity('Echo', async (ctx, input) => `echo:${input}`);
 
       const client = new Client(provider);
       await runtime.start();
@@ -98,6 +103,7 @@ describe('activity tags', () => {
         await client.startOrchestration('chain-1', 'ChainTest');
         const result = await client.waitForOrchestration('chain-1', 10000);
         assert.strictEqual(result.status, 'Completed');
+        assert.strictEqual(result.output, 'echo:hello');
       } finally {
         await runtime.shutdown(100);
       }
