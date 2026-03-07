@@ -1,6 +1,6 @@
 {
-  "name": "duroxide-win32-x64-msvc",
-  "version": "0.1.12",
+  "name": "duroxide-windows-x64",
+  "version": "0.1.13",
   "os": [
     "win32"
   ],
