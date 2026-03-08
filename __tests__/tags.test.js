@@ -191,4 +191,200 @@ describe('activity tags', () => {
       }
     });
   });
+
+  it('heterogeneous workers: GPU render → CPU encode → untagged upload', async () => {
+    await withSqlite(async (provider) => {
+      const client = new Client(provider);
+      const runtime = new Runtime(provider, {
+        dispatcherPollIntervalMs: 50,
+        workerTagFilter: { defaultAnd: ['gpu', 'cpu'] },
+      });
+
+      runtime.registerActivity('Render', async (ctx, input) => `rendered:${input}`);
+      runtime.registerActivity('Encode', async (ctx, input) => `encoded:${input}`);
+      runtime.registerActivity('Upload', async (ctx, input) => `uploaded:${input}`);
+
+      runtime.registerOrchestration('VideoPipeline', function* (ctx) {
+        const rendered = yield ctx.scheduleActivity('Render', 'frame42').withTag('gpu');
+        const encoded = yield ctx.scheduleActivity('Encode', rendered).withTag('cpu');
+        const uploaded = yield ctx.scheduleActivity('Upload', encoded);
+        return uploaded;
+      });
+
+      await runtime.start();
+      try {
+        await client.startOrchestration('video-1', 'VideoPipeline');
+        const result = await client.waitForOrchestration('video-1', 10000);
+        assert.strictEqual(result.status, 'Completed');
+        assert.strictEqual(result.output, 'uploaded:encoded:rendered:frame42');
+      } finally {
+        await runtime.shutdown(100);
+      }
+    });
+  });
+
+  it('starvation-safe: tagged activity races timer, falls back to CPU', async () => {
+    await withSqlite(async (provider) => {
+      const client = new Client(provider);
+      const runtime = new Runtime(provider, {
+        dispatcherPollIntervalMs: 50,
+        workerTagFilter: 'defaultOnly',
+      });
+
+      runtime.registerActivity('GpuInference', async (ctx, input) => `inference:${input}`);
+      runtime.registerActivity('CpuFallback', async (ctx, input) => `cpu_fallback:${input}`);
+
+      runtime.registerOrchestration('InferenceWithFallback', function* (ctx, input) {
+        const gpuTask = ctx.scheduleActivity('GpuInference', input).withTag('gpu');
+        const timeout = ctx.scheduleTimer(500);
+        const winner = yield ctx.race(gpuTask, timeout);
+        if (winner.index === 0) {
+          return winner.value;
+        } else {
+          // Timer won — no GPU worker, fall back to CPU
+          const result = yield ctx.scheduleActivity('CpuFallback', input);
+          return result;
+        }
+      });
+
+      await runtime.start();
+      try {
+        await client.startOrchestration('infer-1', 'InferenceWithFallback', 'model-v3');
+        const result = await client.waitForOrchestration('infer-1', 10000);
+        assert.strictEqual(result.status, 'Completed');
+        assert.strictEqual(result.output, 'cpu_fallback:model-v3');
+      } finally {
+        await runtime.shutdown(100);
+      }
+    });
+  });
+
+  it('dual runtime: orchestrator + GPU worker cooperate on same store', async () => {
+    await withSqlite(async (provider) => {
+      const client = new Client(provider);
+
+      // Runtime A: orchestrator + default (CPU) worker
+      const rtA = new Runtime(provider, {
+        dispatcherPollIntervalMs: 50,
+        workerTagFilter: 'defaultOnly',
+      });
+
+      rtA.registerActivity('PreProcess', async (ctx, input) => `preprocessed:${input}`);
+      rtA.registerActivity('GpuTrain', async (ctx, input) => `trained:${input}`);
+      rtA.registerActivity('SaveModel', async (ctx, input) => `saved:${input}`);
+
+      rtA.registerOrchestration('MLPipeline', function* (ctx, input) {
+        const preprocessed = yield ctx.scheduleActivity('PreProcess', input);
+        const model = yield ctx.scheduleActivity('GpuTrain', preprocessed).withTag('gpu');
+        const saved = yield ctx.scheduleActivity('SaveModel', model);
+        return saved;
+      });
+
+      // Runtime B: GPU worker only (no orchestration dispatcher)
+      const rtB = new Runtime(provider, {
+        dispatcherPollIntervalMs: 50,
+        orchestrationConcurrency: 0,
+        workerTagFilter: { tags: ['gpu'] },
+      });
+
+      rtB.registerActivity('PreProcess', async (ctx, input) => `preprocessed:${input}`);
+      rtB.registerActivity('GpuTrain', async (ctx, input) => `trained:${input}`);
+      rtB.registerActivity('SaveModel', async (ctx, input) => `saved:${input}`);
+
+      rtB.registerOrchestration('MLPipeline', function* (ctx, input) {
+        const preprocessed = yield ctx.scheduleActivity('PreProcess', input);
+        const model = yield ctx.scheduleActivity('GpuTrain', preprocessed).withTag('gpu');
+        const saved = yield ctx.scheduleActivity('SaveModel', model);
+        return saved;
+      });
+
+      await rtA.start();
+      await rtB.start();
+      try {
+        await client.startOrchestration('ml-1', 'MLPipeline', 'dataset-v5');
+        const result = await client.waitForOrchestration('ml-1', 10000);
+        assert.strictEqual(result.status, 'Completed');
+        assert.strictEqual(result.output, 'saved:trained:preprocessed:dataset-v5');
+      } finally {
+        await rtB.shutdown(100);
+        await rtA.shutdown(100);
+      }
+    });
+  });
+
+  it('nested function error handling: ? propagation through helper', async () => {
+    await withSqlite(async (provider) => {
+      const client = new Client(provider);
+      const runtime = new Runtime(provider, { dispatcherPollIntervalMs: 50 });
+
+      runtime.registerActivity('ProcessData', async (ctx, input) => {
+        if (input.includes('error')) throw new Error('Processing failed');
+        return `Processed: ${input}`;
+      });
+      runtime.registerActivity('FormatOutput', async (ctx, input) => `Final: ${input}`);
+
+      runtime.registerOrchestration('NestedErrorHandling', function* (ctx, input) {
+        const processed = yield ctx.scheduleActivity('ProcessData', input);
+        const formatted = yield ctx.scheduleActivity('FormatOutput', processed);
+        return formatted;
+      });
+
+      await runtime.start();
+      try {
+        // Success case
+        await client.startOrchestration('nested-ok', 'NestedErrorHandling', 'test');
+        const ok = await client.waitForOrchestration('nested-ok', 5000);
+        assert.strictEqual(ok.status, 'Completed');
+        assert.strictEqual(ok.output, 'Final: Processed: test');
+
+        // Error case
+        await client.startOrchestration('nested-err', 'NestedErrorHandling', 'error');
+        const err = await client.waitForOrchestration('nested-err', 5000);
+        assert.strictEqual(err.status, 'Failed');
+        assert.ok(err.error.includes('Processing failed'));
+      } finally {
+        await runtime.shutdown(100);
+      }
+    });
+  });
+
+  it('error recovery: catches activity error and logs before failing', async () => {
+    await withSqlite(async (provider) => {
+      const client = new Client(provider);
+      const runtime = new Runtime(provider, { dispatcherPollIntervalMs: 50 });
+
+      runtime.registerActivity('ProcessData', async (ctx, input) => {
+        if (input.includes('error')) throw new Error('Processing failed');
+        return `Processed: ${input}`;
+      });
+      runtime.registerActivity('LogError', async (ctx, error) => `Logged: ${error}`);
+
+      runtime.registerOrchestration('ErrorRecovery', function* (ctx, input) {
+        try {
+          const result = yield ctx.scheduleActivity('ProcessData', input);
+          return result;
+        } catch (e) {
+          yield ctx.scheduleActivity('LogError', e.message || String(e));
+          throw new Error(`Failed to process '${input}': ${e.message || e}`);
+        }
+      });
+
+      await runtime.start();
+      try {
+        // Success case
+        await client.startOrchestration('recovery-ok', 'ErrorRecovery', 'test');
+        const ok = await client.waitForOrchestration('recovery-ok', 5000);
+        assert.strictEqual(ok.status, 'Completed');
+        assert.strictEqual(ok.output, 'Processed: test');
+
+        // Error recovery case
+        await client.startOrchestration('recovery-err', 'ErrorRecovery', 'error');
+        const err = await client.waitForOrchestration('recovery-err', 5000);
+        assert.strictEqual(err.status, 'Failed');
+        assert.ok(err.error.includes("Failed to process 'error'"));
+      } finally {
+        await runtime.shutdown(100);
+      }
+    });
+  });
 });

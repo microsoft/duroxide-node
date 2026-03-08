@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.14] - 2026-03-08
+
+### Added
+- 5 new e2e tests: heterogeneous workers pipeline, starvation-safe tagged activity fallback, dual runtime tag cooperation, nested error handling propagation, error recovery with logging.
+- `MAX_WORKER_TAGS` (5) and `MAX_TAG_NAME_BYTES` (256) constants exported.
+
+### Changed
+- Bumped `duroxide` core from 0.1.22 to 0.1.23 (activity tag ack validation test).
+- Bumped `duroxide-pg` from local path to published 0.1.24 (tag routing + migration fixes).
+
 ## [0.1.10] - 2026-02-28
 
 ### Added
