@@ -85,14 +85,74 @@ jobs:
           done
       - name: Publish platform packages
         run: |
+          failed=0
           for dir in npm/npm/*/; do
             pkg=$(basename "$dir")
             echo "Publishing duroxide-$pkg..."
-            (cd "$dir" && npm publish --access public) || true
+            if ! (cd "$dir" && npm publish --access public); then
+              echo "::error::Failed to publish duroxide-$pkg"
+              failed=1
+            fi
           done
+          if [ "$failed" -ne 0 ]; then
+            echo "::error::One or more platform packages failed to publish. Aborting."
+            exit 1
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Verify platform packages on npm
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "Verifying all platform packages at version $VERSION..."
+          PACKAGES=(
+            "duroxide-darwin-arm64"
+            "duroxide-darwin-x64"
+            "duroxide-linux-x64-gnu"
+            "duroxide-windows-x64"
+          )
+          failed=0
+          for pkg in "${PACKAGES[@]}"; do
+            echo -n "  Checking $pkg@$VERSION... "
+            # Retry up to 5 times with 10s delay for registry propagation
+            found=0
+            for attempt in 1 2 3 4 5; do
+              if npm view "$pkg@$VERSION" version >/dev/null 2>&1; then
+                echo "✅ found (attempt $attempt)"
+                found=1
+                break
+              fi
+              echo -n "."
+              sleep 10
+            done
+            if [ "$found" -eq 0 ]; then
+              echo "❌ NOT FOUND after 5 attempts"
+              failed=1
+            fi
+          done
+          if [ "$failed" -ne 0 ]; then
+            echo "::error::Platform package verification failed. One or more packages missing from npm."
+            exit 1
+          fi
+          echo "All platform packages verified on npm ✅"
       - name: Publish main package
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Verify main package on npm
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "Verifying duroxide@$VERSION on npm..."
+          found=0
+          for attempt in 1 2 3 4 5; do
+            if npm view "duroxide@$VERSION" version >/dev/null 2>&1; then
+              echo "duroxide@$VERSION verified on npm ✅ (attempt $attempt)"
+              found=1
+              break
+            fi
+            echo -n "."
+            sleep 10
+          done
+          if [ "$found" -eq 0 ]; then
+            echo "::error::Main package duroxide@$VERSION not found on npm after 5 attempts"
+            exit 1
+          fi

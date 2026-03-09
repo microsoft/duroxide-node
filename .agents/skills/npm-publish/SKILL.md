@@ -105,14 +105,35 @@ npm publish --access public $AUTH
 
 The `prepublishOnly` script runs `napi prepublish -t npm` automatically, which verifies platform binaries exist.
 
-### 3. Verify
+### 3. Verify (MANDATORY — DO NOT SKIP)
+
+⚠️ **A release is NOT complete until ALL packages are verified on npm.** The main `duroxide` package depends on platform binary packages via `optionalDependencies`. If any platform package is missing, the install will silently succeed but the native binary won't load at runtime.
+
+**Step 3a: Verify all platform packages exist on npm**
 ```bash
-# Test in a clean directory
+VERSION="<NEW_VERSION>"  # e.g., 0.1.14
+for pkg in duroxide-darwin-arm64 duroxide-darwin-x64 duroxide-linux-x64-gnu duroxide-windows-x64; do
+  echo -n "$pkg@$VERSION: "
+  npm view "$pkg@$VERSION" version 2>/dev/null && echo "✅" || echo "❌ MISSING — DO NOT PROCEED"
+done
+```
+
+If ANY platform package shows ❌, **STOP** and fix before continuing. The most common failure mode is version skew — the platform `package.json` files (`npm/npm/*/package.json`) were not bumped to match the main `package.json` version. This causes `npm publish` to try re-publishing an old version, which npm rejects with E403, and the `|| true` in CI silently swallows the error.
+
+**Step 3b: Verify main package**
+```bash
+npm view "duroxide@$VERSION" version
+```
+
+**Step 3c: Integration test in a clean directory**
+```bash
 cd /tmp && mkdir test-duroxide && cd test-duroxide
-npm install duroxide
+npm install duroxide@$VERSION
 node -e "const d = require('duroxide'); console.log('loaded:', Object.keys(d).slice(0,5))"
 rm -rf /tmp/test-duroxide
 ```
+
+All three steps must pass. If Step 3c fails with a missing native binary error, one of the platform packages is broken.
 
 ## npm Authentication
 
@@ -141,8 +162,10 @@ When bumping versions, update `optionalDependencies` in the main `package.json` 
 - [ ] `npm run test:all` — all tests pass
 - [ ] `CHANGELOG.md` — updated for new version
 - [ ] `README.md` — links to CHANGELOG.md
-- [ ] Version bumped in `package.json` + platform packages
+- [ ] Version bumped in `package.json` + **ALL** platform packages (`npm/npm/*/package.json`)
 - [ ] Platform binaries built and copied to `npm/npm/*/`
 - [ ] Platform packages published first
 - [ ] Main package published
-- [ ] Verified with `npm install duroxide` in a clean directory
+- [ ] **ALL 4 platform packages verified on npm** (`npm view <pkg>@<version>`)
+- [ ] **Main package verified on npm** (`npm view duroxide@<version>`)
+- [ ] Verified with `npm install duroxide` in a clean directory — native binary loads
