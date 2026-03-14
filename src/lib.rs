@@ -2,6 +2,8 @@
 
 extern crate napi_derive;
 
+use std::collections::HashMap;
+
 mod client;
 mod handlers;
 mod pg_provider;
@@ -90,6 +92,26 @@ pub fn orchestration_clear_all_values(instance_id: String) {
     handlers::orchestration_clear_all_values(&instance_id);
 }
 
+#[napi_derive::napi]
+pub fn orchestration_get_kv_all_values(instance_id: String) -> HashMap<String, String> {
+    handlers::orchestration_get_kv_all_values(&instance_id)
+}
+
+#[napi_derive::napi]
+pub fn orchestration_get_kv_all_keys(instance_id: String) -> Vec<String> {
+    handlers::orchestration_get_kv_all_keys(&instance_id)
+}
+
+#[napi_derive::napi]
+pub fn orchestration_get_kv_length(instance_id: String) -> u32 {
+    handlers::orchestration_get_kv_length(&instance_id)
+}
+
+#[napi_derive::napi]
+pub fn orchestration_prune_kv_values(instance_id: String, cutoff_ms: i64) -> u32 {
+    handlers::orchestration_prune_kv_values(&instance_id, cutoff_ms.max(0) as u64)
+}
+
 /// Options for `initTracing`. Call before `runtime.start()` to direct
 /// Rust tracing output to a file instead of stdout.
 #[napi_derive::napi(object)]
@@ -112,18 +134,23 @@ pub struct JsTracingOptions {
 #[napi_derive::napi]
 pub fn init_tracing(options: JsTracingOptions) -> napi::Result<()> {
     use std::fs::OpenOptions;
-    use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
+    use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
     let level = options.log_level.unwrap_or_else(|| "info".to_string());
     let filter_expr = format!("warn,duroxide::orchestration={level},duroxide::activity={level}");
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(filter_expr));
+    let env_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(filter_expr));
 
     let file = OpenOptions::new()
         .create(true)
         .append(true)
         .open(&options.log_file)
-        .map_err(|e| napi::Error::from_reason(format!("Failed to open log file '{}': {e}", options.log_file)))?;
+        .map_err(|e| {
+            napi::Error::from_reason(format!(
+                "Failed to open log file '{}': {e}",
+                options.log_file
+            ))
+        })?;
 
     let format = options.log_format.unwrap_or_default();
     match format.as_str() {

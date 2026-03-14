@@ -178,6 +178,10 @@ export declare function orchestrationSetValue(instanceId: string, key: string, v
 export declare function orchestrationGetValue(instanceId: string, key: string): string | null
 export declare function orchestrationClearValue(instanceId: string, key: string): void
 export declare function orchestrationClearAllValues(instanceId: string): void
+export declare function orchestrationGetKvAllValues(instanceId: string): Record<string, string>
+export declare function orchestrationGetKvAllKeys(instanceId: string): Array<string>
+export declare function orchestrationGetKvLength(instanceId: string): number
+export declare function orchestrationPruneKvValues(instanceId: string, cutoffMs: number): number
 /**
  * Options for `initTracing`. Call before `runtime.start()` to direct
  * Rust tracing output to a file instead of stdout.
@@ -215,6 +219,7 @@ export declare class JsClient {
   getStatus(instanceId: string): Promise<JsOrchestrationStatus>
   getValue(instanceId: string, key: string): Promise<string | null>
   waitForValue(instanceId: string, key: string, timeoutMs: number): Promise<string | null>
+  getKvAllValues(instanceId: string): Promise<Record<string, string>>
   /** Wait for an orchestration to complete (with timeout in milliseconds). */
   waitForOrchestration(instanceId: string, timeoutMs: number): Promise<JsOrchestrationStatus>
   /** Cancel a running orchestration instance. */

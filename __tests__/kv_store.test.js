@@ -5,11 +5,15 @@
  */
 const { describe, it } = require('node:test');
 const assert = require('node:assert');
-const { SqliteProvider, Client, Runtime } = require('../lib/duroxide.js');
+const { SqliteProvider, Client, Runtime, MAX_KV_KEYS } = require('../lib/duroxide.js');
 
 const RUN_ID = `kv${Date.now().toString(36)}`;
 function uid(name) {
   return `${RUN_ID}-${name}`;
+}
+
+function sortObject(obj) {
+  return Object.fromEntries(Object.entries(obj).sort(([a], [b]) => a.localeCompare(b)));
 }
 
 async function withRuntime(setupFn, testFn) {
@@ -84,6 +88,50 @@ describe('kv store', () => {
       assert.strictEqual(await client.getValue(instanceId, 'response:op-1'), 'olleh');
       assert.strictEqual(await client.getValue(instanceId, 'response:op-2'), 'dlrow');
       assert.strictEqual(await client.getValue(instanceId, 'response:op-3'), 'tsur');
+    });
+  });
+
+  it('kv bulk snapshot and prune', async () => {
+    await withRuntime((runtime) => {
+      runtime.registerOrchestration('KvBulk', function* (ctx, input) {
+        if (!input || input.phase !== 'prune') {
+          ctx.setValue('old-a', '1');
+          ctx.setValue('old-b', '2');
+          yield ctx.continueAsNew({ phase: 'prune' });
+          return;
+        }
+
+        assert.strictEqual(MAX_KV_KEYS, 100);
+        assert.deepStrictEqual(ctx.getKvAllKeys().slice().sort(), ['old-a', 'old-b']);
+        assert.strictEqual(ctx.getKvLength(), 2);
+        assert.deepStrictEqual(sortObject(ctx.getKvAllValues()), {
+          'old-a': '1',
+          'old-b': '2',
+        });
+
+        const cutoffMs = yield ctx.utcNow();
+        yield ctx.scheduleTimer(5);
+        ctx.setValue('fresh', '3');
+
+        const removed = ctx.pruneKvValuesUpdatedBefore(cutoffMs);
+        assert.strictEqual(removed, 2);
+        assert.deepStrictEqual(ctx.getKvAllKeys().slice().sort(), ['fresh']);
+        assert.strictEqual(ctx.getKvLength(), 1);
+        assert.deepStrictEqual(ctx.getKvAllValues(), { fresh: '3' });
+
+        return 'bulk-ready';
+      });
+    }, async (client) => {
+      const instanceId = uid('kv-bulk');
+      await client.startOrchestration(instanceId, 'KvBulk', null);
+
+      const status = await client.waitForOrchestration(instanceId, 5000);
+      assert.strictEqual(status.status, 'Completed');
+      assert.strictEqual(status.output, 'bulk-ready');
+      assert.deepStrictEqual(await client.getKvAllValues(instanceId), { fresh: '3' });
+      assert.strictEqual(await client.getValue(instanceId, 'fresh'), '3');
+      assert.strictEqual(await client.getValue(instanceId, 'old-a'), null);
+      assert.strictEqual(await client.getValue(instanceId, 'old-b'), null);
     });
   });
 

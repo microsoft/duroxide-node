@@ -160,6 +160,10 @@ export declare class OrchestrationContext {
   getValue(key: string): string | null;
   clearValue(key: string): void;
   clearAllValues(): void;
+  getKvAllValues(): Record<string, string>;
+  getKvAllKeys(): string[];
+  getKvLength(): number;
+  pruneKvValuesUpdatedBefore(cutoffMs: number): number;
 
   // ─── Logging ───────────────────────────────────────────
 
@@ -211,6 +215,7 @@ export declare class Client {
   getStatus(instanceId: string): Promise<JsOrchestrationStatus>;
   getValue(instanceId: string, key: string): Promise<string | null>;
   waitForValue(instanceId: string, key: string, timeoutMs?: number): Promise<string>;
+  getKvAllValues(instanceId: string): Promise<Record<string, string>>;
   waitForOrchestration(instanceId: string, timeoutMs?: number): Promise<JsOrchestrationStatus>;
   cancelInstance(instanceId: string, reason?: string): Promise<void>;
   raiseEvent(instanceId: string, eventName: string, data?: unknown): Promise<void>;

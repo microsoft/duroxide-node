@@ -310,7 +310,7 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { JsClient, JsPostgresProvider, JsSqliteProvider, JsRuntime, activityTraceLog, orchestrationTraceLog, activityIsCancelled, activityGetClient, activityTag, orchestrationSetCustomStatus, orchestrationResetCustomStatus, orchestrationGetCustomStatus, orchestrationSetValue, orchestrationGetValue, orchestrationClearValue, orchestrationClearAllValues, initTracing } = nativeBinding
+const { JsClient, JsPostgresProvider, JsSqliteProvider, JsRuntime, activityTraceLog, orchestrationTraceLog, activityIsCancelled, activityGetClient, activityTag, orchestrationSetCustomStatus, orchestrationResetCustomStatus, orchestrationGetCustomStatus, orchestrationSetValue, orchestrationGetValue, orchestrationClearValue, orchestrationClearAllValues, orchestrationGetKvAllValues, orchestrationGetKvAllKeys, orchestrationGetKvLength, orchestrationPruneKvValues, initTracing } = nativeBinding
 
 module.exports.JsClient = JsClient
 module.exports.JsPostgresProvider = JsPostgresProvider
@@ -328,4 +328,8 @@ module.exports.orchestrationSetValue = orchestrationSetValue
 module.exports.orchestrationGetValue = orchestrationGetValue
 module.exports.orchestrationClearValue = orchestrationClearValue
 module.exports.orchestrationClearAllValues = orchestrationClearAllValues
+module.exports.orchestrationGetKvAllValues = orchestrationGetKvAllValues
+module.exports.orchestrationGetKvAllKeys = orchestrationGetKvAllKeys
+module.exports.orchestrationGetKvLength = orchestrationGetKvLength
+module.exports.orchestrationPruneKvValues = orchestrationPruneKvValues
 module.exports.initTracing = initTracing

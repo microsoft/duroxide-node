@@ -22,7 +22,7 @@ Node.js/TypeScript SDK for the [Duroxide](https://github.com/microsoft/duroxide)
 - **Structured tracing** — orchestration and activity logs route through Rust's `tracing` crate
 - **Runtime metrics** — `metricsSnapshot()` for orchestration/activity counters
 - **SQLite & PostgreSQL** — pluggable storage backends
-- **KV store** — durable per-instance key-value state with `ctx.setValue()` / `client.getValue()` / `client.waitForValue()`
+- **KV store** — durable per-instance key-value state with snapshots and pruning via `ctx.getKvAllValues()` / `client.getKvAllValues()`
 
 ## Quick Start
 
@@ -108,6 +108,10 @@ All scheduling methods return descriptors that must be **yielded**:
 | `ctx.getValue(key)` | Read a KV entry for the current instance (no yield) |
 | `ctx.clearValue(key)` | Remove a single KV entry (no yield) |
 | `ctx.clearAllValues()` | Remove all KV entries (no yield) |
+| `ctx.getKvAllValues()` | Snapshot all KV entries for the current instance |
+| `ctx.getKvAllKeys()` | List all KV keys for the current instance |
+| `ctx.getKvLength()` | Count KV entries for the current instance |
+| `ctx.pruneKvValuesUpdatedBefore(cutoffMs)` | Remove persisted KV entries older than a cutoff |
 | `yield ctx.getValueFromInstance(instanceId, key)` | Read another instance's KV entry |
 
 Tracing methods are **fire-and-forget** (no yield needed):
@@ -190,9 +194,20 @@ const depths = await client.getQueueDepths();
 // Read a KV entry from an orchestration instance
 const value = await client.getValue(instanceId, 'myKey');
 
+// Snapshot every KV entry for an orchestration instance
+const allValues = await client.getKvAllValues(instanceId);
+
 // Wait until a KV key is set (with timeout in ms)
-const value = await client.waitForValue(instanceId, 'myKey', 30000);
+const readyValue = await client.waitForValue(instanceId, 'myKey', 30000);
+
+// Inside an orchestration, inspect or prune the local KV snapshot
+const snapshot = ctx.getKvAllValues();
+const keys = ctx.getKvAllKeys();
+const size = ctx.getKvLength();
+const removed = ctx.pruneKvValuesUpdatedBefore(cutoffMs);
 ```
+
+`MAX_KV_KEYS` is now 100.
 
 ## Documentation
 

@@ -1,5 +1,6 @@
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -147,7 +148,7 @@ impl JsClient {
     #[napi]
     pub async fn get_value(&self, instance_id: String, key: String) -> napi::Result<Option<String>> {
         self.inner
-            .get_value(&instance_id, &key)
+            .get_kv_value(&instance_id, &key)
             .await
             .map_err(|e| Error::from_reason(format!("{e}")))
     }
@@ -160,11 +161,19 @@ impl JsClient {
         timeout_ms: u32,
     ) -> napi::Result<Option<String>> {
         let timeout = Duration::from_millis(timeout_ms as u64);
-        match self.inner.wait_for_value(&instance_id, &key, timeout).await {
+        match self.inner.wait_for_kv_value(&instance_id, &key, timeout).await {
             Ok(value) => Ok(Some(value)),
             Err(ClientError::Timeout) => Ok(None),
             Err(e) => Err(Error::from_reason(format!("{e}"))),
         }
+    }
+
+    #[napi]
+    pub async fn get_kv_all_values(&self, instance_id: String) -> napi::Result<HashMap<String, String>> {
+        self.inner
+            .get_kv_all_values(&instance_id)
+            .await
+            .map_err(|e| Error::from_reason(format!("{e}")))
     }
 
     /// Wait for an orchestration to complete (with timeout in milliseconds).

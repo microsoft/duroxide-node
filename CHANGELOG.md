@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.16] - 2026-03-14
+
+### Changed
+- Bumped `duroxide` from 0.1.24 to 0.1.25.
+- Updated Rust bindings to call the renamed KV APIs (`set_kv_value`, `get_kv_value`, `clear_kv_value`, `clear_all_kv_values`, `get_kv_value_from_instance`, `wait_for_kv_value`).
+- Raised exported `MAX_KV_KEYS` from 10 to 100.
+
+### Added
+- `ctx.getKvAllValues()`, `ctx.getKvAllKeys()`, `ctx.getKvLength()`, and `ctx.pruneKvValuesUpdatedBefore(cutoffMs)`.
+- `client.getKvAllValues(instanceId)` for bulk KV reads.
+- KV tests covering snapshot, pruning, and the updated key limit.
+
 ## [0.1.15] - 2026-03-13
 
 - **KV store support:** Durable key-value store for per-instance state

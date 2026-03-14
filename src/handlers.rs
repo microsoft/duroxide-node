@@ -149,21 +149,21 @@ pub fn orchestration_get_custom_status(instance_id: &str) -> Option<String> {
 pub fn orchestration_set_value(instance_id: &str, key: &str, value: &str) {
     let map = ORCHESTRATION_CTXS.lock();
     if let Some(ctx) = map.get(instance_id) {
-        ctx.set_value(key, value);
+        ctx.set_kv_value(key, value);
     }
 }
 
 /// Called from JS to read the current KV value from the OrchestrationContext.
 pub fn orchestration_get_value(instance_id: &str, key: &str) -> Option<String> {
     let map = ORCHESTRATION_CTXS.lock();
-    map.get(instance_id).and_then(|ctx| ctx.get_value(key))
+    map.get(instance_id).and_then(|ctx| ctx.get_kv_value(key))
 }
 
 /// Called from JS to clear a KV value on the OrchestrationContext.
 pub fn orchestration_clear_value(instance_id: &str, key: &str) {
     let map = ORCHESTRATION_CTXS.lock();
     if let Some(ctx) = map.get(instance_id) {
-        ctx.clear_value(key);
+        ctx.clear_kv_value(key);
     }
 }
 
@@ -171,8 +171,40 @@ pub fn orchestration_clear_value(instance_id: &str, key: &str) {
 pub fn orchestration_clear_all_values(instance_id: &str) {
     let map = ORCHESTRATION_CTXS.lock();
     if let Some(ctx) = map.get(instance_id) {
-        ctx.clear_all_values();
+        ctx.clear_all_kv_values();
     }
+}
+
+/// Called from JS to read all KV values from the OrchestrationContext.
+pub fn orchestration_get_kv_all_values(instance_id: &str) -> HashMap<String, String> {
+    let map = ORCHESTRATION_CTXS.lock();
+    map.get(instance_id)
+        .map(|ctx| ctx.get_kv_all_values())
+        .unwrap_or_default()
+}
+
+/// Called from JS to read all KV keys from the OrchestrationContext.
+pub fn orchestration_get_kv_all_keys(instance_id: &str) -> Vec<String> {
+    let map = ORCHESTRATION_CTXS.lock();
+    map.get(instance_id)
+        .map(|ctx| ctx.get_kv_all_keys())
+        .unwrap_or_default()
+}
+
+/// Called from JS to read the current KV length from the OrchestrationContext.
+pub fn orchestration_get_kv_length(instance_id: &str) -> u32 {
+    let map = ORCHESTRATION_CTXS.lock();
+    map.get(instance_id)
+        .map(|ctx| ctx.get_kv_length() as u32)
+        .unwrap_or(0)
+}
+
+/// Called from JS to prune KV values older than the supplied cutoff.
+pub fn orchestration_prune_kv_values(instance_id: &str, cutoff_ms: u64) -> u32 {
+    let map = ORCHESTRATION_CTXS.lock();
+    map.get(instance_id)
+        .map(|ctx| ctx.prune_kv_values_updated_before(cutoff_ms) as u32)
+        .unwrap_or(0)
 }
 
 // ─── Activity Bridge ─────────────────────────────────────────────
@@ -438,7 +470,7 @@ impl JsOrchestrationHandler {
                 TaskResult::Ok(data)
             }
             ScheduledTask::GetValueFromInstance { instance_id, key } => {
-                match ctx.get_value_from_instance(instance_id, key).await {
+                match ctx.get_kv_value_from_instance(instance_id, key).await {
                     Ok(value) => TaskResult::Ok(serde_json::to_string(&value).unwrap_or_else(|_| "null".to_string())),
                     Err(err) => TaskResult::Err(err),
                 }
@@ -583,7 +615,7 @@ fn make_select_future(
         }
         ScheduledTask::GetValueFromInstance { instance_id, key } => {
             Box::pin(async move {
-                match ctx.get_value_from_instance(instance_id, key).await {
+                match ctx.get_kv_value_from_instance(instance_id, key).await {
                     Ok(value) => serde_json::to_string(&value).unwrap_or_else(|_| "null".to_string()),
                     Err(err) => err,
                 }
@@ -698,7 +730,7 @@ fn make_join_future(
         }
         ScheduledTask::GetValueFromInstance { instance_id, key } => {
             Box::pin(async move {
-                match ctx.get_value_from_instance(instance_id, key).await {
+                match ctx.get_kv_value_from_instance(instance_id, key).await {
                     Ok(value) => wrap_ok(serde_json::to_string(&value).unwrap_or_else(|_| "null".to_string())),
                     Err(err) => wrap_err(err),
                 }
