@@ -8,7 +8,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 duroxide = { version = "0.1.25", features = ["sqlite"] }
-duroxide-pg = { version = "0.1.25" }
+duroxide-pg = { version = "0.1.26" }
 napi = { version = "2", features = ["async", "napi6", "serde-json"] }
 napi-derive = "2"
 async-trait = "0.1"
@@ -22,10 +22,6 @@ tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter", "json"]
 [build-dependencies]
 napi-build = "2"
 
-[patch.crates-io]
-# The published duroxide-pg 0.1.25 crate does not compile against duroxide 0.1.25 yet,
-# so the workspace provider patch keeps local cargo check/build green without changing the dependency line above.
-duroxide-pg = { path = "../../providers/duroxide-pg" }
 
 [profile.release]
 lto = true
