@@ -174,6 +174,10 @@ export declare function orchestrationResetCustomStatus(instanceId: string): void
  * Returns null if no custom status has been set.
  */
 export declare function orchestrationGetCustomStatus(instanceId: string): string | null
+export declare function orchestrationSetValue(instanceId: string, key: string, value: string): void
+export declare function orchestrationGetValue(instanceId: string, key: string): string | null
+export declare function orchestrationClearValue(instanceId: string, key: string): void
+export declare function orchestrationClearAllValues(instanceId: string): void
 /**
  * Options for `initTracing`. Call before `runtime.start()` to direct
  * Rust tracing output to a file instead of stdout.
@@ -209,6 +213,8 @@ export declare class JsClient {
   startOrchestrationVersioned(instanceId: string, orchestrationName: string, input: string, version: string): Promise<void>
   /** Get the current status of an orchestration instance. */
   getStatus(instanceId: string): Promise<JsOrchestrationStatus>
+  getValue(instanceId: string, key: string): Promise<string | null>
+  waitForValue(instanceId: string, key: string, timeoutMs: number): Promise<string | null>
   /** Wait for an orchestration to complete (with timeout in milliseconds). */
   waitForOrchestration(instanceId: string, timeoutMs: number): Promise<JsOrchestrationStatus>
   /** Cancel a running orchestration instance. */

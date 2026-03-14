@@ -70,6 +70,26 @@ pub fn orchestration_get_custom_status(instance_id: String) -> Option<String> {
     handlers::orchestration_get_custom_status(&instance_id)
 }
 
+#[napi_derive::napi]
+pub fn orchestration_set_value(instance_id: String, key: String, value: String) {
+    handlers::orchestration_set_value(&instance_id, &key, &value);
+}
+
+#[napi_derive::napi]
+pub fn orchestration_get_value(instance_id: String, key: String) -> Option<String> {
+    handlers::orchestration_get_value(&instance_id, &key)
+}
+
+#[napi_derive::napi]
+pub fn orchestration_clear_value(instance_id: String, key: String) {
+    handlers::orchestration_clear_value(&instance_id, &key);
+}
+
+#[napi_derive::napi]
+pub fn orchestration_clear_all_values(instance_id: String) {
+    handlers::orchestration_clear_all_values(&instance_id);
+}
+
 /// Options for `initTracing`. Call before `runtime.start()` to direct
 /// Rust tracing output to a file instead of stdout.
 #[napi_derive::napi(object)]

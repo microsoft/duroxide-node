@@ -145,6 +145,36 @@ pub fn orchestration_get_custom_status(instance_id: &str) -> Option<String> {
     map.get(instance_id).and_then(|ctx| ctx.get_custom_status())
 }
 
+/// Called from JS to set a KV value on the OrchestrationContext.
+pub fn orchestration_set_value(instance_id: &str, key: &str, value: &str) {
+    let map = ORCHESTRATION_CTXS.lock();
+    if let Some(ctx) = map.get(instance_id) {
+        ctx.set_value(key, value);
+    }
+}
+
+/// Called from JS to read the current KV value from the OrchestrationContext.
+pub fn orchestration_get_value(instance_id: &str, key: &str) -> Option<String> {
+    let map = ORCHESTRATION_CTXS.lock();
+    map.get(instance_id).and_then(|ctx| ctx.get_value(key))
+}
+
+/// Called from JS to clear a KV value on the OrchestrationContext.
+pub fn orchestration_clear_value(instance_id: &str, key: &str) {
+    let map = ORCHESTRATION_CTXS.lock();
+    if let Some(ctx) = map.get(instance_id) {
+        ctx.clear_value(key);
+    }
+}
+
+/// Called from JS to clear all KV values on the OrchestrationContext.
+pub fn orchestration_clear_all_values(instance_id: &str) {
+    let map = ORCHESTRATION_CTXS.lock();
+    if let Some(ctx) = map.get(instance_id) {
+        ctx.clear_all_values();
+    }
+}
+
 // ─── Activity Bridge ─────────────────────────────────────────────
 
 /// Wraps a JS async function as a Rust ActivityHandler.
@@ -407,6 +437,12 @@ impl JsOrchestrationHandler {
                 let data = ctx.dequeue_event(&queue_name).await;
                 TaskResult::Ok(data)
             }
+            ScheduledTask::GetValueFromInstance { instance_id, key } => {
+                match ctx.get_value_from_instance(instance_id, key).await {
+                    Ok(value) => TaskResult::Ok(serde_json::to_string(&value).unwrap_or_else(|_| "null".to_string())),
+                    Err(err) => TaskResult::Err(err),
+                }
+            }
             ScheduledTask::Join { tasks } => {
                 // Reject nested join/select — recursive async requires Pin<Box> gymnastics
                 // and nested composition is not a meaningful pattern.
@@ -545,6 +581,14 @@ fn make_select_future(
                 ctx.dequeue_event(&queue_name).await
             })
         }
+        ScheduledTask::GetValueFromInstance { instance_id, key } => {
+            Box::pin(async move {
+                match ctx.get_value_from_instance(instance_id, key).await {
+                    Ok(value) => serde_json::to_string(&value).unwrap_or_else(|_| "null".to_string()),
+                    Err(err) => err,
+                }
+            })
+        }
         ScheduledTask::SubOrchestration { name, input } => {
             Box::pin(async move {
                 match ctx.schedule_sub_orchestration(&name, input).await {
@@ -650,6 +694,14 @@ fn make_join_future(
             Box::pin(async move {
                 let data = ctx.dequeue_event(&queue_name).await;
                 wrap_ok(data)
+            })
+        }
+        ScheduledTask::GetValueFromInstance { instance_id, key } => {
+            Box::pin(async move {
+                match ctx.get_value_from_instance(instance_id, key).await {
+                    Ok(value) => wrap_ok(serde_json::to_string(&value).unwrap_or_else(|_| "null".to_string())),
+                    Err(err) => wrap_err(err),
+                }
             })
         }
         ScheduledTask::SubOrchestration { name, input } => {

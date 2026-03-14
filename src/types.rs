@@ -86,6 +86,12 @@ pub enum ScheduledTask {
         #[serde(rename = "queueName")]
         queue_name: String,
     },
+    #[serde(rename = "getValueFromInstance")]
+    GetValueFromInstance {
+        #[serde(rename = "instanceId")]
+        instance_id: String,
+        key: String,
+    },
     #[serde(rename = "join")]
     Join { tasks: Vec<ScheduledTask> },
     #[serde(rename = "select")]

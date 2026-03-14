@@ -22,6 +22,7 @@ Node.js/TypeScript SDK for the [Duroxide](https://github.com/microsoft/duroxide)
 - **Structured tracing** — orchestration and activity logs route through Rust's `tracing` crate
 - **Runtime metrics** — `metricsSnapshot()` for orchestration/activity counters
 - **SQLite & PostgreSQL** — pluggable storage backends
+- **KV store** — durable per-instance key-value state with `ctx.setValue()` / `client.getValue()` / `client.waitForValue()`
 
 ## Quick Start
 
@@ -103,6 +104,11 @@ All scheduling methods return descriptors that must be **yielded**:
 | `yield ctx.dequeueEvent(queueName)` | Dequeue from persistent FIFO mailbox |
 | `yield ctx.scheduleActivityWithRetryOnSession(name, input, retry, sessionId)` | Retry with session affinity |
 | `yield ctx.continueAsNew(newInput)` | Restart with fresh history |
+| `ctx.setValue(key, value)` | Set a durable KV entry (no yield) |
+| `ctx.getValue(key)` | Read a KV entry for the current instance (no yield) |
+| `ctx.clearValue(key)` | Remove a single KV entry (no yield) |
+| `ctx.clearAllValues()` | Remove all KV entries (no yield) |
+| `yield ctx.getValueFromInstance(instanceId, key)` | Read another instance's KV entry |
 
 Tracing methods are **fire-and-forget** (no yield needed):
 
@@ -176,6 +182,16 @@ for (const event of events) {
 // Metrics
 const metrics = await client.getSystemMetrics();
 const depths = await client.getQueueDepths();
+```
+
+### KV Store
+
+```javascript
+// Read a KV entry from an orchestration instance
+const value = await client.getValue(instanceId, 'myKey');
+
+// Wait until a KV key is set (with timeout in ms)
+const value = await client.waitForValue(instanceId, 'myKey', 30000);
 ```
 
 ## Documentation

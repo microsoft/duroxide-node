@@ -63,6 +63,7 @@ export declare class OrchestrationContext {
   scheduleTimer(delayMs: number): ScheduledTask;
   waitForEvent(name: string): ScheduledTask;
   dequeueEvent(queueName: string): ScheduledTask;
+  getValueFromInstance(instanceId: string, key: string): ScheduledTask;
   scheduleSubOrchestration(name: string, input?: unknown): ScheduledTask;
   scheduleSubOrchestrationWithId(name: string, instanceId: string, input?: unknown): ScheduledTask;
   scheduleSubOrchestrationVersioned(name: string, version: string, input?: unknown): ScheduledTask;
@@ -155,6 +156,10 @@ export declare class OrchestrationContext {
   setCustomStatus(status: string): void;
   resetCustomStatus(): void;
   getCustomStatus(): string | null;
+  setValue(key: string, value: string): void;
+  getValue(key: string): string | null;
+  clearValue(key: string): void;
+  clearAllValues(): void;
 
   // ─── Logging ───────────────────────────────────────────
 
@@ -204,6 +209,8 @@ export declare class Client {
   startOrchestration(instanceId: string, orchestrationName: string, input?: unknown): Promise<void>;
   startOrchestrationVersioned(instanceId: string, orchestrationName: string, input: unknown, version: string): Promise<void>;
   getStatus(instanceId: string): Promise<JsOrchestrationStatus>;
+  getValue(instanceId: string, key: string): Promise<string | null>;
+  waitForValue(instanceId: string, key: string, timeoutMs?: number): Promise<string>;
   waitForOrchestration(instanceId: string, timeoutMs?: number): Promise<JsOrchestrationStatus>;
   cancelInstance(instanceId: string, reason?: string): Promise<void>;
   raiseEvent(instanceId: string, eventName: string, data?: unknown): Promise<void>;
@@ -272,3 +279,12 @@ export declare class Runtime {
 
 /** Install a tracing subscriber that writes to a file. */
 export declare function initTracing(options: JsTracingOptions): void;
+
+/** Maximum KV keys allowed per orchestration instance. */
+export declare const MAX_KV_KEYS: number;
+/** Maximum UTF-8 bytes allowed for a single KV value. */
+export declare const MAX_KV_VALUE_BYTES: number;
+/** Maximum worker tags allowed on an activity. */
+export declare const MAX_WORKER_TAGS: number;
+/** Maximum UTF-8 bytes allowed for a single worker tag. */
+export declare const MAX_TAG_NAME_BYTES: number;

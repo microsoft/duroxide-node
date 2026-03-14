@@ -3,7 +3,7 @@ use napi_derive::napi;
 use std::sync::Arc;
 use std::time::Duration;
 
-use duroxide::client::Client;
+use duroxide::client::{Client, ClientError};
 use duroxide::OrchestrationStatus;
 
 use crate::provider::JsSqliteProvider;
@@ -142,6 +142,29 @@ impl JsClient {
             .await
             .map_err(|e| Error::from_reason(format!("{e}")))?;
         Ok(convert_status(status))
+    }
+
+    #[napi]
+    pub async fn get_value(&self, instance_id: String, key: String) -> napi::Result<Option<String>> {
+        self.inner
+            .get_value(&instance_id, &key)
+            .await
+            .map_err(|e| Error::from_reason(format!("{e}")))
+    }
+
+    #[napi]
+    pub async fn wait_for_value(
+        &self,
+        instance_id: String,
+        key: String,
+        timeout_ms: u32,
+    ) -> napi::Result<Option<String>> {
+        let timeout = Duration::from_millis(timeout_ms as u64);
+        match self.inner.wait_for_value(&instance_id, &key, timeout).await {
+            Ok(value) => Ok(Some(value)),
+            Err(ClientError::Timeout) => Ok(None),
+            Err(e) => Err(Error::from_reason(format!("{e}"))),
+        }
     }
 
     /// Wait for an orchestration to complete (with timeout in milliseconds).
