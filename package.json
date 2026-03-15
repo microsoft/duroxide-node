@@ -39,10 +39,10 @@
     "node": ">= 18"
   },
   "optionalDependencies": {
-    "duroxide-windows-x64": "0.1.16",
-    "duroxide-darwin-x64": "0.1.16",
-    "duroxide-linux-x64-gnu": "0.1.16",
-    "duroxide-darwin-arm64": "0.1.16"
+    "duroxide-windows-x64": "0.1.17",
+    "duroxide-darwin-x64": "0.1.17",
+    "duroxide-linux-x64-gnu": "0.1.17",
+    "duroxide-darwin-arm64": "0.1.17"
   },
   "files": [
     "index.js",
