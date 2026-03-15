@@ -135,6 +135,38 @@ describe('kv store', () => {
     });
   });
 
+  it('kv read-modify-write counter', async () => {
+    await withRuntime((runtime) => {
+      runtime.registerActivity('ProcessBatch', async (_ctx, input) => {
+        return `processed:${input}`;
+      });
+
+      runtime.registerOrchestration('BatchProcessor', function* (ctx) {
+        const batches = ['alpha', 'beta', 'gamma'];
+
+        for (const batchName of batches) {
+          const processed = ctx.getValue('batches_processed') ?? '0';
+          const count = Number.parseInt(processed, 10);
+
+          const result = yield ctx.scheduleActivity('ProcessBatch', batchName);
+          ctx.setValue('batches_processed', String(count + 1));
+          ctx.setValue('last_result', result);
+        }
+
+        return ctx.getValue('batches_processed') ?? '0';
+      });
+    }, async (client) => {
+      const instanceId = uid('batch-processor');
+      await client.startOrchestration(instanceId, 'BatchProcessor', null);
+
+      const status = await client.waitForOrchestration(instanceId, 5000);
+      assert.strictEqual(status.status, 'Completed');
+      assert.strictEqual(status.output, '3');
+      assert.strictEqual(await client.getValue(instanceId, 'batches_processed'), '3');
+      assert.strictEqual(await client.getValue(instanceId, 'last_result'), 'processed:gamma');
+    });
+  });
+
   it('kv cross orchestration read', async () => {
     await withRuntime((runtime) => {
       runtime.registerActivity('ComputeResult', async (_ctx, input) => {
