@@ -10,7 +10,7 @@ use duroxide::OrchestrationStatus;
 use crate::provider::JsSqliteProvider;
 use crate::pg_provider::JsPostgresProvider;
 use crate::types::{
-    JsOrchestrationStatus, JsQueueDepths, JsSystemMetrics,
+    JsOrchestrationStatus, JsQueueDepths, JsSystemMetrics, JsSystemStats,
     JsInstanceInfo, JsExecutionInfo, JsInstanceTree,
     JsDeleteInstanceResult, JsPruneOptions, JsPruneResult,
     JsInstanceFilter, JsEvent,
@@ -231,6 +231,23 @@ impl JsClient {
             failed_instances: metrics.failed_instances as i64,
             total_events: metrics.total_events as i64,
         })
+    }
+
+    /// Get per-orchestration runtime stats.
+    #[napi]
+    pub async fn get_orchestration_stats(&self, instance_id: String) -> Result<Option<JsSystemStats>> {
+        let stats = self
+            .inner
+            .get_orchestration_stats(&instance_id)
+            .await
+            .map_err(|e| Error::from_reason(format!("{e}")))?;
+        Ok(stats.map(|stats| JsSystemStats {
+            history_event_count: stats.history_event_count as i64,
+            history_size_bytes: stats.history_size_bytes as i64,
+            queue_pending_count: stats.queue_pending_count as i64,
+            kv_user_key_count: stats.kv_user_key_count as i64,
+            kv_total_value_bytes: stats.kv_total_value_bytes as i64,
+        }))
     }
 
     /// Get queue depths (if provider supports management).

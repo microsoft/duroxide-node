@@ -148,6 +148,17 @@ pub struct JsSystemMetrics {
     pub total_events: i64,
 }
 
+/// Per-orchestration runtime stats returned to JS.
+#[napi(object)]
+#[derive(Debug, Clone)]
+pub struct JsSystemStats {
+    pub history_event_count: i64,
+    pub history_size_bytes: i64,
+    pub queue_pending_count: i64,
+    pub kv_user_key_count: i64,
+    pub kv_total_value_bytes: i64,
+}
+
 /// Queue depths returned to JS.
 #[napi(object)]
 #[derive(Debug, Clone)]

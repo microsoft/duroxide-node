@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.18] - 2026-04-04
+
+### Added
+- `client.getOrchestrationStats(instanceId)` exposing per-instance `SystemStats` history/KV usage introspection.
+- Node admin tests and TypeScript declarations for orchestration stats.
+
+### Changed
+- Bumped local validation deps to `duroxide` 0.1.27 and `duroxide-pg` 0.1.28.
+- Updated exported KV limits to `MAX_KV_KEYS = 150` and `MAX_KV_VALUE_BYTES = 65536`.
+
 ## [0.1.17] - 2026-03-15
 
 ### Changed

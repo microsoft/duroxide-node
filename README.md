@@ -21,6 +21,7 @@ Node.js/TypeScript SDK for the [Duroxide](https://github.com/microsoft/duroxide)
 - **Continue-as-new** — restart orchestrations with fresh history for eternal workflows
 - **Structured tracing** — orchestration and activity logs route through Rust's `tracing` crate
 - **Runtime metrics** — `metricsSnapshot()` for orchestration/activity counters
+- **Per-instance orchestration stats** — inspect history size, pending queue carry-forward, and KV usage with `client.getOrchestrationStats()`
 - **SQLite & PostgreSQL** — pluggable storage backends
 - **KV store** — durable per-instance key-value state with snapshots and pruning via `ctx.getKvAllValues()` / `client.getKvAllValues()`
 
@@ -185,7 +186,20 @@ for (const event of events) {
 
 // Metrics
 const metrics = await client.getSystemMetrics();
+const stats = await client.getOrchestrationStats(instanceId);
 const depths = await client.getQueueDepths();
+```
+
+`getOrchestrationStats()` returns `null` for a missing instance, otherwise:
+
+```javascript
+{
+  historyEventCount: 2,
+  historySizeBytes: 184,
+  queuePendingCount: 0,
+  kvUserKeyCount: 1,
+  kvTotalValueBytes: 11
+}
 ```
 
 ### KV Store
@@ -207,7 +221,7 @@ const size = ctx.getKvLength();
 const removed = ctx.pruneKvValuesUpdatedBefore(cutoffMs);
 ```
 
-`MAX_KV_KEYS` is now 100.
+`MAX_KV_KEYS` is now 150, and `MAX_KV_VALUE_BYTES` is now 65536.
 
 ## Documentation
 

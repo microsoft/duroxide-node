@@ -105,7 +105,37 @@ describe('admin: listInstancesByStatus', () => {
   });
 });
 
-// ─── 3. getInstanceInfo ──────────────────────────────────────────
+// ─── 3. getOrchestrationStats ────────────────────────────────────
+
+describe('admin: getOrchestrationStats', () => {
+  it('returns per-instance history and KV stats', async () => {
+    const { client, instanceId } = await runToCompletion(
+      'StatsTest', { value: 'hello-world' },
+      (rt) => {
+        rt.registerOrchestration('StatsTest', function* (ctx, input) {
+          ctx.setValue('user_key', input.value);
+          return { ok: true };
+        });
+      }
+    );
+
+    const stats = await client.getOrchestrationStats(instanceId);
+    assert.ok(stats, 'should return stats for a completed instance');
+    assert.ok(stats.historyEventCount >= 2, `expected at least 2 history events, got ${stats.historyEventCount}`);
+    assert.ok(stats.historySizeBytes > 0, 'history size should be positive');
+    assert.strictEqual(stats.queuePendingCount, 0);
+    assert.strictEqual(stats.kvUserKeyCount, 1);
+    assert.strictEqual(stats.kvTotalValueBytes, 'hello-world'.length);
+  });
+
+  it('returns null for a missing instance', async () => {
+    const client = new Client(provider);
+    const stats = await client.getOrchestrationStats(uid('missing-stats'));
+    assert.strictEqual(stats, null);
+  });
+});
+
+// ─── 4. getInstanceInfo ──────────────────────────────────────────
 
 describe('admin: getInstanceInfo', () => {
   it('returns detailed instance metadata', async () => {
@@ -129,7 +159,7 @@ describe('admin: getInstanceInfo', () => {
   });
 });
 
-// ─── 4. getExecutionInfo ─────────────────────────────────────────
+// ─── 5. getExecutionInfo ─────────────────────────────────────────
 
 describe('admin: getExecutionInfo', () => {
   it('returns execution-level details', async () => {
@@ -151,7 +181,7 @@ describe('admin: getExecutionInfo', () => {
   });
 });
 
-// ─── 5. listExecutions ───────────────────────────────────────────
+// ─── 6. listExecutions ───────────────────────────────────────────
 
 describe('admin: listExecutions', () => {
   it('returns execution IDs for CAN workflows', async () => {
@@ -182,7 +212,7 @@ describe('admin: listExecutions', () => {
   });
 });
 
-// ─── 6. readExecutionHistory ─────────────────────────────────────
+// ─── 7. readExecutionHistory ─────────────────────────────────────
 
 describe('admin: readExecutionHistory', () => {
   it('returns events for a specific execution', async () => {
@@ -249,7 +279,7 @@ describe('admin: readExecutionHistory', () => {
   });
 });
 
-// ─── 7. getInstanceTree ──────────────────────────────────────────
+// ─── 8. getInstanceTree ──────────────────────────────────────────
 
 describe('admin: getInstanceTree', () => {
   it('returns the tree for a parent + child orchestration', async () => {

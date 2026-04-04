@@ -55,6 +55,14 @@ export interface JsSystemMetrics {
   failedInstances: number
   totalEvents: number
 }
+/** Per-orchestration runtime stats returned to JS. */
+export interface JsSystemStats {
+  historyEventCount: number
+  historySizeBytes: number
+  queuePendingCount: number
+  kvUserKeyCount: number
+  kvTotalValueBytes: number
+}
 /** Queue depths returned to JS. */
 export interface JsQueueDepths {
   orchestratorQueue: number
@@ -228,6 +236,8 @@ export declare class JsClient {
   raiseEvent(instanceId: string, eventName: string, data: string): Promise<void>
   /** Get system metrics (if provider supports management). */
   getSystemMetrics(): Promise<JsSystemMetrics>
+  /** Get per-orchestration runtime stats. */
+  getOrchestrationStats(instanceId: string): Promise<JsSystemStats | null>
   /** Get queue depths (if provider supports management). */
   getQueueDepths(): Promise<JsQueueDepths>
   /** List all orchestration instance IDs. */

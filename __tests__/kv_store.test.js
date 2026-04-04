@@ -101,7 +101,7 @@ describe('kv store', () => {
           return;
         }
 
-        assert.strictEqual(MAX_KV_KEYS, 100);
+        assert.strictEqual(MAX_KV_KEYS, 150);
         assert.deepStrictEqual(ctx.getKvAllKeys().slice().sort(), ['old-a', 'old-b']);
         assert.strictEqual(ctx.getKvLength(), 2);
         assert.deepStrictEqual(sortObject(ctx.getKvAllValues()), {

@@ -1200,3 +1200,44 @@ describe('all composition edge cases', () => {
     assert.strictEqual(result.output.value, 'fast-result');
   });
 });
+
+// ─── Orchestration stats ─────────────────────────────────────────
+
+describe('e2e: orchestration stats', () => {
+  it('returns per-instance stats after completion', async () => {
+    const client = new Client(provider);
+    const runtime = new Runtime(provider, { dispatcherPollIntervalMs: 50 });
+
+    runtime.registerActivity('FetchData', async (_ctx, url) => {
+      return `data from ${url}`;
+    });
+
+    runtime.registerOrchestration('DataPipeline', function* (ctx, _input) {
+      const result = yield ctx.scheduleActivity('FetchData', 'https://api.example.com');
+      ctx.setValue('last_fetch', result);
+      ctx.setValue('status', 'complete');
+      return result;
+    });
+
+    await runtime.start();
+    try {
+      // Missing instance returns null
+      const missing = await client.getOrchestrationStats('missing-stats-e2e');
+      assert.strictEqual(missing, null);
+
+      const instanceId = uid('stats-e2e');
+      await client.startOrchestration(instanceId, 'DataPipeline', '');
+      await client.waitForOrchestration(instanceId, 10_000);
+
+      const stats = await client.getOrchestrationStats(instanceId);
+      assert.ok(stats, 'stats should exist after completion');
+      assert.ok(stats.historyEventCount >= 4, `expected >= 4 history events, got ${stats.historyEventCount}`);
+      assert.ok(stats.historySizeBytes > 0, 'history size should be positive');
+      assert.strictEqual(stats.kvUserKeyCount, 2);
+      assert.ok(stats.kvTotalValueBytes > 0, 'kv value bytes should be positive');
+      assert.strictEqual(stats.queuePendingCount, 0);
+    } finally {
+      await runtime.shutdown(100);
+    }
+  });
+});

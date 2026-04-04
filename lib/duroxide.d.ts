@@ -6,6 +6,7 @@ import {
   JsRuntimeOptions,
   JsOrchestrationStatus,
   JsSystemMetrics,
+  JsSystemStats,
   JsQueueDepths,
   JsInstanceInfo,
   JsExecutionInfo,
@@ -46,6 +47,9 @@ export interface RetryPolicy {
   totalTimeoutMs?: number;
   backoff?: number;
 }
+
+/** Per-orchestration runtime stats. */
+export type SystemStats = JsSystemStats;
 
 /** Context object passed to orchestration generator functions. */
 export declare class OrchestrationContext {
@@ -222,6 +226,7 @@ export declare class Client {
   enqueueEvent(instanceId: string, queueName: string, data?: unknown): Promise<void>;
   waitForStatusChange(instanceId: string, lastSeenVersion: number, pollIntervalMs?: number, timeoutMs?: number): Promise<JsOrchestrationStatus>;
   getSystemMetrics(): Promise<JsSystemMetrics>;
+  getOrchestrationStats(instanceId: string): Promise<SystemStats | null>;
   getQueueDepths(): Promise<JsQueueDepths>;
 
   // ─── Management / Admin API ─────────────────────────────

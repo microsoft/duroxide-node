@@ -565,6 +565,7 @@ const change = await client.waitForStatusChange('id', lastVersion, 100, 30000);
 // Admin operations
 await client.deleteInstance('id', { force: false });
 const metrics = await client.getSystemMetrics();
+const stats = await client.getOrchestrationStats('id');
 const depths = await client.getQueueDepths();
 ```
 
