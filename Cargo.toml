@@ -8,7 +8,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 duroxide = { version = "0.1.27", features = ["sqlite"] }
-duroxide-pg = "0.1.28"
+duroxide-pg = "0.1.29"
 napi = { version = "2", features = ["async", "napi6", "serde-json"] }
 napi-derive = "2"
 async-trait = "0.1"
