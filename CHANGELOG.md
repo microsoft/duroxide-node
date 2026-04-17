@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.20] - 2026-04-17
+
+### Fixed
+- Windows dispatcher now resolves the correct platform subpackage (`duroxide-windows-x64`).
+  Previously `require('duroxide-win32-x64-msvc')` in `index.js` threw `MODULE_NOT_FOUND`,
+  making `duroxide@0.1.19` unusable on Windows ([microsoft/duroxide#13](https://github.com/microsoft/duroxide/issues/13)).
+
+### Added
+- Cross-platform packaging smoke tests in `ci/smoke/` that install from local tarballs on
+  ubuntu, macos-14, macos-13, and windows-latest, plus post-publish registry smoke. Publish
+  is gated on all-platform smoke success — partial platform releases are no longer possible.
+
 ## [0.1.19] - 2026-04-06
 
 ### Changed
