@@ -69,7 +69,7 @@ switch (platform) {
           if (localFileExisted) {
             nativeBinding = require('./duroxide.win32-x64-msvc.node')
           } else {
-            nativeBinding = require('duroxide-win32-x64-msvc')
+            nativeBinding = require('duroxide-windows-x64')
           }
         } catch (e) {
           loadError = e
