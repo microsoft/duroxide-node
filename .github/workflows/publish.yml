@@ -253,7 +253,11 @@ jobs:
           fi
           echo "All platform packages verified on npm ✅"
       - name: Publish main package
-        run: npm publish --access public --tag "${{ steps.disttag.outputs.tag }}"
+        # --ignore-scripts skips `prepublishOnly: napi prepublish -t npm` which
+        # would regenerate optionalDependencies with napi-rs default names (e.g.
+        # duroxide-win32-x64-msvc), clobbering our renamed duroxide-windows-x64.
+        # All platform prep already happened in prior workflow steps.
+        run: npm publish --ignore-scripts --access public --tag "${{ steps.disttag.outputs.tag }}"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Verify main package on npm

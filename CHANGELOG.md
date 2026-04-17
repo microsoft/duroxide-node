@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.21] - 2026-04-17
+
+### Fixed
+- `npm install duroxide` now correctly pulls the `duroxide-windows-x64` optional
+  dependency. In `0.1.20` the published `optionalDependencies` in the main
+  package were rewritten by napi-rs's `prepublish` step back to the default
+  `duroxide-win32-x64-msvc` name, which does not exist on npm post-rename, so
+  Windows installs failed with `MODULE_NOT_FOUND`. Caught by the new
+  post-publish registry smoke. CI now publishes the main package with
+  `--ignore-scripts` to preserve our manifest exactly.
+
 ## [0.1.20] - 2026-04-17
 
 ### Fixed
