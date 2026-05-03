@@ -31,6 +31,16 @@ Node.js/TypeScript SDK for the [Duroxide](https://github.com/microsoft/duroxide)
 npm install duroxide
 ```
 
+Prebuilt native packages are published for:
+
+| OS | Architecture | Native package |
+|----|--------------|----------------|
+| macOS | arm64 | `duroxide-darwin-arm64` |
+| macOS | x64 | `duroxide-darwin-x64` |
+| Linux glibc | arm64 | `duroxide-linux-arm64-gnu` |
+| Linux glibc | x64 | `duroxide-linux-x64-gnu` |
+| Windows | x64 | `duroxide-windows-x64` |
+
 ```javascript
 const { SqliteProvider, Client, Runtime } = require('duroxide');
 

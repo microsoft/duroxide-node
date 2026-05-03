@@ -31,6 +31,9 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             platform: linux-x64-gnu
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            platform: linux-arm64-gnu
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             platform: win32-x64-msvc
@@ -75,6 +78,7 @@ jobs:
         run: |
           mv duroxide.darwin-arm64.node     npm/npm/darwin-arm64/
           mv duroxide.darwin-x64.node       npm/npm/darwin-x64/
+          mv duroxide.linux-arm64-gnu.node  npm/npm/linux-arm64-gnu/
           mv duroxide.linux-x64-gnu.node    npm/npm/linux-x64-gnu/
           mv duroxide.win32-x64-msvc.node   npm/npm/win32-x64-msvc/
       - name: Pack platform subpackages
@@ -104,6 +108,9 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux-x64-gnu
+            shell: bash
+          - os: ubuntu-24.04-arm
+            platform: linux-arm64-gnu
             shell: bash
           - os: macos-14        # arm64
             platform: darwin-arm64
@@ -180,6 +187,7 @@ jobs:
         run: |
           mv duroxide.darwin-arm64.node npm/npm/darwin-arm64/
           mv duroxide.darwin-x64.node npm/npm/darwin-x64/
+          mv duroxide.linux-arm64-gnu.node npm/npm/linux-arm64-gnu/
           mv duroxide.linux-x64-gnu.node npm/npm/linux-x64-gnu/
           mv duroxide.win32-x64-msvc.node npm/npm/win32-x64-msvc/
       - name: List platform packages
@@ -225,6 +233,7 @@ jobs:
           PACKAGES=(
             "duroxide-darwin-arm64"
             "duroxide-darwin-x64"
+            "duroxide-linux-arm64-gnu"
             "duroxide-linux-x64-gnu"
             "duroxide-windows-x64"
           )
@@ -292,6 +301,8 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
+            shell: bash
+          - os: ubuntu-24.04-arm
             shell: bash
           - os: macos-14
             shell: bash

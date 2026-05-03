@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.24] - 2026-05-03
+
+### Added
+
+- **Linux ARM64 GNU package** - Publish `duroxide-linux-arm64-gnu`
+  for `aarch64-unknown-linux-gnu` and include it as an optional dependency so
+  `linux/arm64` Node.js containers load the native binding.
+- **Linux ARM64 CI smoke** - Build, pack, publish, and smoke-test Linux ARM64
+  on `ubuntu-24.04-arm`.
+
 ## [0.1.23] - 2026-04-23
 
 ### Fixed
