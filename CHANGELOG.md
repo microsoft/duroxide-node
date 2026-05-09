@@ -5,7 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.24] - 2026-05-03
+## [0.1.25] - 2026-05-09
+
+### Added
+
+- **Microsoft Entra ID authentication** — `PostgresProvider.connectWithEntra(host, port, database, user, options?)` and `PostgresProvider.connectWithSchemaAndEntra(host, port, database, user, schema, options?)` connect to Azure Database for PostgreSQL Flexible Server via Entra access tokens. Credentials are resolved via the default chain (WorkloadIdentityCredential → ManagedIdentityCredential → DeveloperToolsCredential). A background task refreshes the token before expiry. All connections use `PgSslMode::VerifyFull`.
+- **`PostgresEntraOptions` interface** — optional tunables: `audience`, `maxConnections`, `acquireTimeoutMs`, `refreshIntervalMs`. All fields default to sensible Azure public-cloud values.
+
+### Changed
+
+- **Bumped `duroxide` dependency** — `0.1.28` → `0.1.29`
+- **Bumped `duroxide-pg` dependency** — `0.1.30` → `0.1.32`
+
+
 
 ### Added
 

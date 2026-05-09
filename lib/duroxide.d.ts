@@ -204,10 +204,38 @@ export declare class SqliteProvider {
   static inMemory(): Promise<SqliteProvider>;
 }
 
+/**
+ * Options for Microsoft Entra ID authentication with Azure Database for PostgreSQL.
+ * All fields are optional; omitted fields use sensible Azure public-cloud defaults.
+ */
+export interface PostgresEntraOptions {
+  /** Token audience/scope override. Required for sovereign clouds. Defaults to `https://ossrdbms-aad.database.windows.net/.default`. */
+  audience?: string;
+  /** Maximum number of connections in the pool. Defaults to 10 (or `$DUROXIDE_PG_POOL_MAX` if set). */
+  maxConnections?: number;
+  /** How long to wait for a connection from the pool, in milliseconds. Defaults to 30 000 ms. */
+  acquireTimeoutMs?: number;
+  /** How far in advance of expiry to refresh the Entra token, in milliseconds. Defaults to 300 000 ms. */
+  refreshIntervalMs?: number;
+}
+
 /** PostgreSQL provider for duroxide. */
 export declare class PostgresProvider {
   static connect(databaseUrl: string): Promise<PostgresProvider>;
   static connectWithSchema(databaseUrl: string, schema: string): Promise<PostgresProvider>;
+  /**
+   * Connect to Azure Database for PostgreSQL using Microsoft Entra ID authentication.
+   * Uses the default "public" schema.
+   *
+   * Credentials are resolved via: WorkloadIdentityCredential →
+   * ManagedIdentityCredential → DeveloperToolsCredential.
+   */
+  static connectWithEntra(host: string, port: number, database: string, user: string, options?: PostgresEntraOptions): Promise<PostgresProvider>;
+  /**
+   * Connect to Azure Database for PostgreSQL using Microsoft Entra ID authentication,
+   * with a custom schema for tenant isolation.
+   */
+  static connectWithSchemaAndEntra(host: string, port: number, database: string, user: string, schema: string, options?: PostgresEntraOptions): Promise<PostgresProvider>;
 }
 
 /** Client for starting and managing orchestration instances. */

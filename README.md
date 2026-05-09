@@ -155,6 +155,36 @@ const provider = await PostgresProvider.connectWithSchema(
 );
 ```
 
+### PostgreSQL with Microsoft Entra ID (Azure)
+
+For Azure Database for PostgreSQL Flexible Server, use Entra ID token authentication instead of a password:
+
+```javascript
+const provider = await PostgresProvider.connectWithEntra(
+  'myserver.postgres.database.azure.com',
+  5432,
+  'mydb',
+  'my-entra-user@contoso.onmicrosoft.com'
+);
+
+// With a custom schema and options:
+const provider = await PostgresProvider.connectWithSchemaAndEntra(
+  'myserver.postgres.database.azure.com',
+  5432,
+  'mydb',
+  'my-entra-user@contoso.onmicrosoft.com',
+  'my_schema',
+  { maxConnections: 20, acquireTimeoutMs: 45_000 }
+);
+```
+
+Credentials are resolved automatically via the default chain:
+- `WorkloadIdentityCredential` (AKS Workload Identity, if env vars present)
+- `ManagedIdentityCredential` (Azure VMs, Container Apps, etc.)
+- `DeveloperToolsCredential` (local development: `az login`)
+
+All connections use TLS (`PgSslMode::VerifyFull`). See [`PostgresEntraOptions`](lib/duroxide.d.ts) for tunable options.
+
 ## Logging
 
 Duroxide uses Rust's `tracing` crate. Control verbosity with `RUST_LOG`:

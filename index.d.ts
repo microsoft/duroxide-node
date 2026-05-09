@@ -267,6 +267,17 @@ export declare class JsClient {
   /** Wait for the custom status version to change on an orchestration instance. */
   waitForStatusChange(instanceId: string, lastSeenVersion: number, pollIntervalMs: number, timeoutMs: number): Promise<JsOrchestrationStatus>
 }
+/** Options for Microsoft Entra ID authentication with Azure Database for PostgreSQL. */
+export interface JsPostgresEntraOptions {
+  /** Token audience/scope override. Required for sovereign clouds. Defaults to `https://ossrdbms-aad.database.windows.net/.default`. */
+  audience?: string
+  /** Maximum number of connections in the pool. Defaults to 10 (or `$DUROXIDE_PG_POOL_MAX` if set). */
+  maxConnections?: number
+  /** How long to wait for a connection from the pool, in milliseconds. Defaults to 30 000 ms. */
+  acquireTimeoutMs?: number
+  /** How far in advance of expiry to refresh the token, in milliseconds. Defaults to 300 000 ms. */
+  refreshIntervalMs?: number
+}
 /** Wraps duroxide-pg's PostgresProvider for use from JavaScript. */
 export declare class JsPostgresProvider {
   /**
@@ -279,6 +290,16 @@ export declare class JsPostgresProvider {
    * The schema will be created if it does not exist.
    */
   static connectWithSchema(databaseUrl: string, schema: string): Promise<JsPostgresProvider>
+  /**
+   * Connect to Azure Database for PostgreSQL using Microsoft Entra ID authentication.
+   * Uses the default "public" schema.
+   */
+  static connectWithEntra(host: string, port: number, database: string, user: string, options?: JsPostgresEntraOptions | undefined | null): Promise<JsPostgresProvider>
+  /**
+   * Connect to Azure Database for PostgreSQL using Microsoft Entra ID authentication,
+   * with a custom schema for tenant isolation.
+   */
+  static connectWithSchemaAndEntra(host: string, port: number, database: string, user: string, schema: string, options?: JsPostgresEntraOptions | undefined | null): Promise<JsPostgresProvider>
 }
 /** Wraps duroxide's SqliteProvider for use from JavaScript. */
 export declare class JsSqliteProvider {
