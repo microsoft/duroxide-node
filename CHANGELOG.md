@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.26] - 2026-05-13
+
+### Fixed
+
+- **Entra HTTPS token acquisition** — picks up the upstream native-TLS fix in
+  `duroxide-pg 0.1.33` ([microsoft/duroxide-pg#8]). Released `duroxide-pg 0.1.32`
+  pulled `reqwest` transitively without a TLS connector compiled in, which
+  caused every HTTPS call (including AAD token acquisition for
+  `connectWithEntra` / `connectWithSchemaAndEntra`) to fail with
+  `error sending request` / `invalid URL, scheme is not http`. No public API
+  changes.
+
+### Changed
+
+- **Bumped `duroxide-pg` dependency** — `0.1.32` → `0.1.33`.
+
+[microsoft/duroxide-pg#8]: https://github.com/microsoft/duroxide-pg/pull/8
+
 ## [0.1.25] - 2026-05-09
 
 ### Added
