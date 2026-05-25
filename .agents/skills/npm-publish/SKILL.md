@@ -99,22 +99,24 @@ directory and binary filename remain `win32-x64-msvc`.
 
 Platform packages MUST be published before the main package (npm resolves optionalDependencies at install time).
 
+The GitHub Actions release workflow is the preferred publish path. It uses npm
+Trusted Publishing/OIDC for `duroxide` and all five platform packages, so it
+does not require `NPM_TOKEN`. The publish job must run on Node 22.14+ with npm
+11.5.1+ and `permissions.id-token: write`.
+
 ### 1. Publish platform packages
 ```bash
-# Requires an npm Automation token (bypasses 2FA)
-AUTH="--//registry.npmjs.org/:_authToken=<TOKEN>"
-
-cd npm/npm/darwin-arm64 && npm publish --access public $AUTH && cd -
-cd npm/npm/darwin-x64   && npm publish --access public $AUTH && cd -
-cd npm/npm/linux-arm64-gnu && npm publish --access public $AUTH && cd -
-cd npm/npm/linux-x64-gnu && npm publish --access public $AUTH && cd -
-cd npm/npm/win32-x64-msvc && npm publish --access public $AUTH && cd -
+cd npm/npm/darwin-arm64 && npm publish --access public && cd -
+cd npm/npm/darwin-x64   && npm publish --access public && cd -
+cd npm/npm/linux-arm64-gnu && npm publish --access public && cd -
+cd npm/npm/linux-x64-gnu && npm publish --access public && cd -
+cd npm/npm/win32-x64-msvc && npm publish --access public && cd -
 ```
 
 ### 2. Publish main package
 ```bash
 cd duroxide-node
-npm publish --access public $AUTH
+npm publish --access public
 ```
 
 The `prepublishOnly` script runs `napi prepublish -t npm` automatically, which verifies platform binaries exist.
@@ -151,10 +153,12 @@ All three steps must pass. If Step 3c fails with a missing native binary error, 
 
 ## npm Authentication
 
-- Publishing requires an **Automation** token (bypasses 2FA)
-- Create at: https://www.npmjs.com/settings/<username>/tokens
-- Token type: **Automation** (not Granular, unless "bypass 2FA" is enabled)
-- Never commit tokens to source code
+- Preferred: npm Trusted Publishing/OIDC configured for `microsoft/duroxide-node`
+  + `.github/workflows/publish.yml` on all six npm packages.
+- Do not set `NODE_AUTH_TOKEN` for trusted-publishing jobs; npm CLI detects the
+  GitHub OIDC environment and exchanges it for short-lived publish credentials.
+- Manual token publishing is a break-glass fallback only. If used, use an npm
+  Automation token that can publish all six packages and never commit it.
 
 ## Version Cascade
 
