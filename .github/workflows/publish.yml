@@ -221,10 +221,15 @@ jobs:
         run: |
           failed=0
           for dir in npm/npm/*/; do
-            pkg=$(basename "$dir")
-            echo "Publishing duroxide-$pkg with tag=${{ steps.disttag.outputs.tag }}..."
+            name=$(node -p "require('./${dir%/}/package.json').name")
+            version=$(node -p "require('./${dir%/}/package.json').version")
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "$name@$version already exists on npm; skipping."
+              continue
+            fi
+            echo "Publishing $name@$version with tag=${{ steps.disttag.outputs.tag }}..."
             if ! (cd "$dir" && npm publish --access public --tag "${{ steps.disttag.outputs.tag }}"); then
-              echo "::error::Failed to publish duroxide-$pkg"
+              echo "::error::Failed to publish $name@$version"
               failed=1
             fi
           done
@@ -272,7 +277,13 @@ jobs:
         # would regenerate optionalDependencies with napi-rs default names (e.g.
         # duroxide-win32-x64-msvc), clobbering our renamed duroxide-windows-x64.
         # All platform prep already happened in prior workflow steps.
-        run: npm publish --ignore-scripts --access public --tag "${{ steps.disttag.outputs.tag }}"
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "duroxide@$VERSION" version >/dev/null 2>&1; then
+            echo "duroxide@$VERSION already exists on npm; skipping."
+          else
+            npm publish --ignore-scripts --access public --tag "${{ steps.disttag.outputs.tag }}"
+          fi
       - name: Verify main package on npm
         run: |
           VERSION=$(node -p "require('./package.json').version")
