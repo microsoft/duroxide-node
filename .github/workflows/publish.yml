@@ -47,7 +47,7 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - name: Install dependencies
-        run: npm ci
+        run: npm install --omit=optional --ignore-scripts --no-audit --no-fund --package-lock=false
       - name: Build
         run: npx napi build --platform --release --target ${{ matrix.target }}
       - name: Upload artifact
@@ -68,7 +68,7 @@ jobs:
         with:
           node-version: 20
       - name: Install dependencies
-        run: npm ci
+        run: npm install --omit=optional --ignore-scripts --no-audit --no-fund --package-lock=false
       - name: Download all binary artifacts
         uses: actions/download-artifact@v4
         with:
