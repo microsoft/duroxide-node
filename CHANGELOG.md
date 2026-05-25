@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.27] - 2026-05-25
+
+### Changed
+
+- **Bumped `duroxide-pg` dependency** — `0.1.33` → `0.1.34` while keeping
+  `duroxide` at `0.1.29`.
+- **PostgreSQL provider initialization compatibility** — native bindings now
+  construct `ProviderConfig::url(...)` / `ProviderConfig::entra(...)` and call
+  the single-argument `PostgresProvider::new_with_config(config)` API introduced
+  by `duroxide-pg 0.1.34`. No JavaScript API changes.
+
 ## [0.1.26] - 2026-05-13
 
 ### Fixed

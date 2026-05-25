@@ -24,7 +24,7 @@ npx napi build --platform --release
 ### 2. Tests Pass
 
 ```bash
-# All 52 tests must pass (requires DATABASE_URL in .env)
+# All tests must pass (requires DATABASE_URL in .env)
 npm run test:all
 ```
 
@@ -54,7 +54,7 @@ Or manually update `package.json` `version` field and ensure `optionalDependenci
 
 ## Build Platform Binaries
 
-Three platforms are supported:
+Five platform packages are supported:
 
 ### darwin-arm64 (macOS Apple Silicon) — native build
 ```bash
@@ -80,8 +80,20 @@ docker run --rm -v "$(pwd):/build" -w /build --platform linux/amd64 rust:latest 
 cp duroxide.linux-x64-gnu.node npm/npm/linux-x64-gnu/
 ```
 
-### win32-x64-msvc (Windows) — Docker + cargo-xwin (optional)
-Not currently built. Can be added with `cargo-xwin` in a Linux Docker container.
+### linux-arm64-gnu — Docker build
+```bash
+docker run --rm -v "$(pwd):/build" -w /build --platform linux/arm64 rust:latest bash -c "
+  curl -fsSL https://deb.nodesource.com/setup_22.x | bash - &&
+  apt-get install -y nodejs &&
+  npm install &&
+  npx napi build --platform --release --target aarch64-unknown-linux-gnu
+"
+cp duroxide.linux-arm64-gnu.node npm/npm/linux-arm64-gnu/
+```
+
+### win32-x64-msvc (Windows)
+The package is named `duroxide-windows-x64` on npm, while the napi target
+directory and binary filename remain `win32-x64-msvc`.
 
 ## Publish Order
 
@@ -94,7 +106,9 @@ AUTH="--//registry.npmjs.org/:_authToken=<TOKEN>"
 
 cd npm/npm/darwin-arm64 && npm publish --access public $AUTH && cd -
 cd npm/npm/darwin-x64   && npm publish --access public $AUTH && cd -
+cd npm/npm/linux-arm64-gnu && npm publish --access public $AUTH && cd -
 cd npm/npm/linux-x64-gnu && npm publish --access public $AUTH && cd -
+cd npm/npm/win32-x64-msvc && npm publish --access public $AUTH && cd -
 ```
 
 ### 2. Publish main package
@@ -112,7 +126,7 @@ The `prepublishOnly` script runs `napi prepublish -t npm` automatically, which v
 **Step 3a: Verify all platform packages exist on npm**
 ```bash
 VERSION="<NEW_VERSION>"  # e.g., 0.1.14
-for pkg in duroxide-darwin-arm64 duroxide-darwin-x64 duroxide-linux-x64-gnu duroxide-windows-x64; do
+for pkg in duroxide-darwin-arm64 duroxide-darwin-x64 duroxide-linux-arm64-gnu duroxide-linux-x64-gnu duroxide-windows-x64; do
   echo -n "$pkg@$VERSION: "
   npm view "$pkg@$VERSION" version 2>/dev/null && echo "✅" || echo "❌ MISSING — DO NOT PROCEED"
 done
@@ -150,8 +164,9 @@ When bumping versions, update `optionalDependencies` in the main `package.json` 
 "optionalDependencies": {
   "duroxide-darwin-arm64": "<NEW_VERSION>",
   "duroxide-darwin-x64": "<NEW_VERSION>",
+  "duroxide-linux-arm64-gnu": "<NEW_VERSION>",
   "duroxide-linux-x64-gnu": "<NEW_VERSION>",
-  "duroxide-win32-x64-msvc": "<NEW_VERSION>"
+  "duroxide-windows-x64": "<NEW_VERSION>"
 }
 ```
 
@@ -166,6 +181,6 @@ When bumping versions, update `optionalDependencies` in the main `package.json` 
 - [ ] Platform binaries built and copied to `npm/npm/*/`
 - [ ] Platform packages published first
 - [ ] Main package published
-- [ ] **ALL 4 platform packages verified on npm** (`npm view <pkg>@<version>`)
+- [ ] **ALL 5 platform packages verified on npm** (`npm view <pkg>@<version>`)
 - [ ] **Main package verified on npm** (`npm view duroxide@<version>`)
 - [ ] Verified with `npm install duroxide` in a clean directory — native binary loads

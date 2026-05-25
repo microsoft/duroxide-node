@@ -169,13 +169,15 @@ Activities have no restrictions — they run once, result is cached.
 
 ## Crate Version Alignment
 
-`Cargo.toml` uses `[patch.crates-io]` to avoid "two versions of crate duroxide" errors:
+Release manifests must resolve `duroxide` and `duroxide-pg` from crates.io:
 ```toml
-[patch.crates-io]
-duroxide = { path = "../duroxide" }
+duroxide = { version = "0.1.29", features = ["sqlite"] }
+duroxide-pg = "0.1.34"
 ```
 
-This forces all transitive deps (duroxide-pg) to use the local duroxide.
+Temporary local `[patch.crates-io]` sections or inline `path =` overrides are
+acceptable during cross-repository development, but remove them before release
+validation so CI and published packages use registry crates.
 
 ## Adding Features
 

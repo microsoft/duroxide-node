@@ -244,14 +244,18 @@ Internally, `JsRuntime` stores `Arc<dyn Provider>` so all provider operations ar
 
 ## Crate Version Alignment
 
-duroxide-node depends on both `duroxide` (local path) and `duroxide-pg` (which depends on duroxide from crates.io). To avoid "two versions of crate `duroxide`" errors:
+Release manifests resolve both Rust dependencies from crates.io. Keep
+`duroxide` and `duroxide-pg` as versioned dependencies in `Cargo.toml` and do
+not ship `[patch.crates-io]` sections or inline `path =` overrides:
 
 ```toml
-[patch.crates-io]
-duroxide = { path = "../duroxide" }
+duroxide = { version = "0.1.29", features = ["sqlite"] }
+duroxide-pg = "0.1.34"
 ```
 
-This forces all transitive dependencies to use the local duroxide.
+Temporary local path overrides may be useful during cross-repository
+development, but they must be removed before release validation so CI and
+published packages use the crates.io versions.
 
 ## Custom Status Data Path
 

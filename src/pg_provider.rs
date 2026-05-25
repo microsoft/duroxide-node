@@ -35,7 +35,8 @@ impl JsPostgresProvider {
     /// Uses the default "public" schema.
     #[napi(factory)]
     pub async fn connect(database_url: String) -> Result<Self> {
-        let provider = duroxide_pg::PostgresProvider::new(&database_url)
+        let config = duroxide_pg::ProviderConfig::url(database_url);
+        let provider = duroxide_pg::PostgresProvider::new_with_config(config)
             .await
             .map_err(|e| Error::from_reason(format!("Failed to connect to PostgreSQL: {e}")))?;
         Ok(Self {
@@ -47,10 +48,11 @@ impl JsPostgresProvider {
     /// The schema will be created if it does not exist.
     #[napi(factory, js_name = "connectWithSchema")]
     pub async fn connect_with_schema(database_url: String, schema: String) -> Result<Self> {
-        let provider =
-            duroxide_pg::PostgresProvider::new_with_schema(&database_url, Some(&schema))
-                .await
-                .map_err(|e| Error::from_reason(format!("Failed to connect to PostgreSQL: {e}")))?;
+        let mut config = duroxide_pg::ProviderConfig::url(database_url);
+        config.schema_name = Some(schema);
+        let provider = duroxide_pg::PostgresProvider::new_with_config(config)
+            .await
+            .map_err(|e| Error::from_reason(format!("Failed to connect to PostgreSQL: {e}")))?;
         Ok(Self {
             inner: Arc::new(provider),
         })
@@ -71,10 +73,10 @@ impl JsPostgresProvider {
         options: Option<JsPostgresEntraOptions>,
     ) -> Result<Self> {
         let opts = build_entra_options(options);
-        let provider =
-            duroxide_pg::PostgresProvider::new_with_entra(&host, port as u16, &database, &user, opts)
-                .await
-                .map_err(|e| Error::from_reason(format!("Failed to connect with Entra: {e}")))?;
+        let config = duroxide_pg::ProviderConfig::entra(host, port as u16, database, user, opts);
+        let provider = duroxide_pg::PostgresProvider::new_with_config(config)
+            .await
+            .map_err(|e| Error::from_reason(format!("Failed to connect with Entra: {e}")))?;
         Ok(Self {
             inner: Arc::new(provider),
         })
@@ -92,18 +94,13 @@ impl JsPostgresProvider {
         options: Option<JsPostgresEntraOptions>,
     ) -> Result<Self> {
         let opts = build_entra_options(options);
-        let provider = duroxide_pg::PostgresProvider::new_with_schema_and_entra(
-            &host,
-            port as u16,
-            &database,
-            &user,
-            Some(&schema),
-            opts,
-        )
-        .await
-        .map_err(|e| {
-            Error::from_reason(format!("Failed to connect with schema and Entra: {e}"))
-        })?;
+        let mut config = duroxide_pg::ProviderConfig::entra(host, port as u16, database, user, opts);
+        config.schema_name = Some(schema);
+        let provider = duroxide_pg::PostgresProvider::new_with_config(config)
+            .await
+            .map_err(|e| {
+                Error::from_reason(format!("Failed to connect with schema and Entra: {e}"))
+            })?;
         Ok(Self {
             inner: Arc::new(provider),
         })
