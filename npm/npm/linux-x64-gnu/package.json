@@ -12,6 +12,10 @@
     "duroxide.linux-x64-gnu.node"
   ],
   "description": "Durable execution runtime for Node.js, powered by Rust",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/microsoft/duroxide-node"
+  },
   "license": "MIT",
   "engines": {
     "node": ">= 18"

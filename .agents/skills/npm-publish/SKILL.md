@@ -104,6 +104,17 @@ Trusted Publishing/OIDC for `duroxide` and all five platform packages, so it
 does not require `NPM_TOKEN`. The publish job must run on Node 22.14+ with npm
 11.5.1+ and `permissions.id-token: write`.
 
+All six package manifests must include:
+
+```json
+"repository": {
+  "type": "git",
+  "url": "https://github.com/microsoft/duroxide-node"
+}
+```
+
+npm validates `repository.url` against the GitHub provenance claim.
+
 ### 1. Publish platform packages
 ```bash
 cd npm/npm/darwin-arm64 && npm publish --access public && cd -

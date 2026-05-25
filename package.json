@@ -35,6 +35,10 @@
     "@napi-rs/cli": "^2.18.0",
     "dotenv": "^17.2.4"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/microsoft/duroxide-node"
+  },
   "license": "MIT",
   "engines": {
     "node": ">= 18"
