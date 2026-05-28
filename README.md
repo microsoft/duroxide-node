@@ -2,6 +2,8 @@
 
 Node.js/TypeScript SDK for the [Duroxide](https://github.com/microsoft/duroxide) durable execution runtime. Write reliable, long-running workflows in JavaScript using generator functions — backed by a Rust runtime that handles persistence, replay, and fault tolerance.
 
+> **Preview:** This project is currently in preview.
+
 > See [CHANGELOG.md](https://github.com/microsoft/duroxide-node/blob/main/CHANGELOG.md) for release notes.
 
 ## Features
