@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 use napi::threadsafe_function::{ErrorStrategy, ThreadsafeFunction};
 use std::collections::HashMap;
 use parking_lot::Mutex;

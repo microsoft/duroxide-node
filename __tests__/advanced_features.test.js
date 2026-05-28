@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 /**
  * Advanced features tests for duroxide Node.js SDK — PostgreSQL backend.
  * Covers typed registration, retry, cancellation, timers, custom status,

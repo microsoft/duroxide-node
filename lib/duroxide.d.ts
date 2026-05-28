@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 /**
  * TypeScript declarations for duroxide Node.js SDK public API.
  */

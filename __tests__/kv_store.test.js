@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 /**
  * KV store end-to-end tests for duroxide Node.js SDK.
  * Ported from duroxide/tests/e2e_samples.rs.

@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Post-publish smoke for Windows. See run-registry.sh for details.
 $ErrorActionPreference = 'Stop'
 

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Pre-publish smoke: install duroxide main + matching platform subpackage from
 # LOCAL tarballs in a fresh temp dir (outside the repo), then run smoke.mjs.
 # Reproduces the exact require-path that `npm install duroxide` exercises for

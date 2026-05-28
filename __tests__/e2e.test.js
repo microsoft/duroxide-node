@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 /**
  * End-to-end tests for duroxide Node.js SDK — PostgreSQL backend.
  * Ported from duroxide/tests/e2e_samples.rs

@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 /**
  * Activity tag routing tests for duroxide Node.js SDK.
  * Tests run against SQLite (no external database required).
