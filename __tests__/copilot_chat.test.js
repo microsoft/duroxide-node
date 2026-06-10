@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 /**
  * Copilot Chat scenario — exercises event queues, custom status, continue-as-new,
  * and wait_for_status_change in a multi-turn conversational pattern.

@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 /**
  * Typed convenience API tests for duroxide Node.js SDK.
  * Covers all typed methods on OrchestrationContext and Client.

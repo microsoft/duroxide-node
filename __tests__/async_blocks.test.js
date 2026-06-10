@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 /**
  * Tests for async block patterns — ported from Rust core async_block_tests.
  * In Rust, multi-step async blocks can be joined/raced directly.

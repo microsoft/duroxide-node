@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use std::collections::HashMap;

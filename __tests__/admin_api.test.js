@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 /**
  * Management / Admin API tests for duroxide Node.js SDK — PostgreSQL backend.
  *

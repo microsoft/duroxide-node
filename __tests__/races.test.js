@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 /**
  * Tests for ctx.all() (join) and ctx.race() (select) with mixed task types,
  * including activity cooperative cancellation via isCancelled().

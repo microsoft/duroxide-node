@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 /**
  * Session support tests for duroxide Node.js SDK.
  * Tests 1–9 run against PostgreSQL. Test 10 is a SQLite smoketest.

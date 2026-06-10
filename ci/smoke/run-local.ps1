@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Pre-publish smoke for Windows (PowerShell). See run-local.sh for details.
 $ErrorActionPreference = 'Stop'
 

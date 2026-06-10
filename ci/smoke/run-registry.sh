@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Post-publish smoke: install `duroxide@<version>` from the real npm registry
 # and run the smoke script. Catches registry-propagation / platform-subpackage
 # resolution issues that `npm view` existence checks miss.
