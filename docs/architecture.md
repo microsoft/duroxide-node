@@ -249,7 +249,7 @@ Release manifests resolve both Rust dependencies from crates.io. Keep
 not ship `[patch.crates-io]` sections or inline `path =` overrides:
 
 ```toml
-duroxide = { version = "0.1.29", features = ["sqlite"] }
+duroxide = { version = "0.1.30", features = ["sqlite"] }
 duroxide-pg = "0.1.34"
 ```
 
