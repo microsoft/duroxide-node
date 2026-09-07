@@ -280,6 +280,12 @@ npm run test:scenarios   # Scenario tests (6 tests)
 npm run test:all         # Everything (52 tests)
 ```
 
+## Releases
+
+Releases are published to npm through Microsoft's internal release pipelines.
+The GitHub Actions workflow in this repository only builds and smoke-tests the
+distribution artifacts.
+
 ## Support
 
 Use GitHub Issues for bug reports and feature requests. Do not report security vulnerabilities through public GitHub issues; follow the instructions in [SECURITY.md](SECURITY.md) instead.
