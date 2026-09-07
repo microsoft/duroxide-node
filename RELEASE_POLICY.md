@@ -13,9 +13,8 @@ Contributors can prepare a release through a pull request:
 3. Run the build, tests, and package smoke checks.
 4. Open a pull request for review.
 
-After the release change is merged and a matching `vX.Y.Z` tag is created, the
-internal release pipeline builds the tagged source and publishes the packages to
-npm.
+After the release change is merged, a Microsoft maintainer uses the internal
+release pipeline to build and publish the packages to npm.
 
 ## Publishing Boundary
 
