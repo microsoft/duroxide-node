@@ -47,8 +47,7 @@ Update other documentation only when the release changes make it inaccurate.
 The release preparation is complete when the version updates, changelog, and
 required documentation are ready for maintainer review.
 
-Create a pull request targeting `main`. Do not create the release tag while the
-pull request is open.
+Create a pull request targeting `main`.
 
 GitHub Actions validates the full SDK test suite, cross-platform builds, and
 local-package smoke tests on the pull request.
@@ -57,7 +56,6 @@ local-package smoke tests on the pull request.
 
 After the pull request is merged, release preparation is complete.
 
-Do not create or push a release tag, run `npm publish`, create a GitHub Release,
-or add publishing credentials or internal pipeline configuration. A Microsoft
-maintainer handles tagging and publication through the internal release
-pipeline.
+Do not run `npm publish`, create a GitHub Release, or add publishing credentials
+or internal pipeline configuration. A Microsoft maintainer runs the internal
+release pipeline.

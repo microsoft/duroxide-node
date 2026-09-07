@@ -13,9 +13,8 @@ Contributors can prepare a release through a pull request:
 3. Open a pull request for review. GitHub Actions runs the build, tests, and
    package smoke checks.
 
-After the release change is merged, a Microsoft maintainer creates the matching
-release tag and uses the internal release pipeline to build and publish the
-packages to npm.
+After the release change is merged, a Microsoft maintainer runs the internal
+release pipeline to build and publish the packages to npm.
 
 ## Publishing Boundary
 
