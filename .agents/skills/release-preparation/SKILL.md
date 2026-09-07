@@ -42,20 +42,31 @@ In `CHANGELOG.md`:
 
 Update other documentation only when the release changes make it inaccurate.
 
-## 4. Prepare the Pull Request
+## 4. Open the Release Pull Request
 
 The release preparation is complete when the version updates, changelog, and
 required documentation are ready for maintainer review.
 
+Create a pull request targeting `main`. Do not create the release tag while the
+pull request is open.
+
 GitHub Actions validates the cross-platform builds and local-package smoke tests
 on the pull request.
 
-Do not:
+## 5. Create the Tag After Merge
 
-- Run `npm publish`.
-- Create or push a release tag.
-- Create a GitHub Release.
-- Add publishing credentials or internal pipeline configuration.
+After the pull request is merged:
 
-A Microsoft maintainer handles publication through the internal release
-pipeline after the release pull request is merged.
+1. Verify that the pull request is merged into `main` and identify its merge
+   commit.
+2. Ask the user for explicit approval to create and push the exact `vX.Y.Z` tag
+   at that commit.
+3. Only after approval, create the lightweight tag and push that tag to
+   `origin`.
+
+If the tag already exists locally or remotely, stop instead of moving or
+force-updating it.
+
+Do not run `npm publish`, create a GitHub Release, or add publishing credentials
+or internal pipeline configuration. A Microsoft maintainer handles publication
+through the internal release pipeline.
