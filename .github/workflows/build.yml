@@ -59,20 +59,6 @@ jobs:
     name: Test suite
     runs-on: ubuntu-latest
     needs: [build]
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: duroxide
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d duroxide"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/duroxide
     steps:
@@ -80,6 +66,11 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 20
+      - name: Start PostgreSQL
+        run: |
+          sudo systemctl start postgresql.service
+          sudo -u postgres psql --command "ALTER USER postgres PASSWORD 'postgres'"
+          sudo -u postgres createdb duroxide
       - name: Install dependencies
         run: npm install --omit=optional --ignore-scripts --no-audit --no-fund --package-lock=false
       - name: Download Linux binary
