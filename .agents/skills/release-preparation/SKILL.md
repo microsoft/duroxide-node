@@ -50,8 +50,8 @@ required documentation are ready for maintainer review.
 Create a pull request targeting `main`. Do not create the release tag while the
 pull request is open.
 
-GitHub Actions validates the cross-platform builds and local-package smoke tests
-on the pull request.
+GitHub Actions validates the full SDK test suite, cross-platform builds, and
+local-package smoke tests on the pull request.
 
 ## 5. Maintainer Handoff
 

@@ -54,6 +54,41 @@ jobs:
           path: duroxide.*.node
           if-no-files-found: error
 
+  # ── Full SDK regression suite ──────────────────────────────
+  test:
+    name: Test suite
+    runs-on: ubuntu-latest
+    needs: [build]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: duroxide
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d duroxide"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/duroxide
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: npm install --omit=optional --ignore-scripts --no-audit --no-fund --package-lock=false
+      - name: Download Linux binary
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: binary-linux-x64-gnu
+      - name: Run tests
+        run: npm run test:all
+
   # ── Pack tarballs for smoke (local install simulation) ─────
   pack:
     name: Pack tarballs
