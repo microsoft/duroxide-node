@@ -8,7 +8,8 @@ execution remain outside this repository.
 
 Contributors can prepare a release through a pull request:
 
-1. Update the version in `package.json` and `npm/npm/*/package.json`.
+1. Keep the root package version, every `npm/npm/*/package.json` version, and
+   all platform `optionalDependencies` aligned.
 2. Update `CHANGELOG.md` and relevant documentation.
 3. Open a pull request for review. GitHub Actions runs the build, tests, and
    package smoke checks.
