@@ -42,27 +42,13 @@ In `CHANGELOG.md`:
 
 Update other documentation only when the release changes make it inaccurate.
 
-## 4. Validate the Release Changes
-
-Run the existing checks:
-
-```bash
-cargo clippy --all-targets
-npm run build
-npm run test:all
-npm pack --dry-run
-```
-
-`npm run test:all` requires the configured PostgreSQL test database. GitHub
-Actions performs the cross-platform builds and local-package smoke tests.
-
-Before finishing, verify that the root package, all platform packages, and all
-optional dependencies use the same target version.
-
-## 5. Prepare the Pull Request
+## 4. Prepare the Pull Request
 
 The release preparation is complete when the version updates, changelog, and
 required documentation are ready for maintainer review.
+
+GitHub Actions validates the cross-platform builds and local-package smoke tests
+on the pull request.
 
 Do not:
 
