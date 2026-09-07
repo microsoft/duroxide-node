@@ -106,19 +106,23 @@ jobs:
           - os: ubuntu-latest
             platform: linux-x64-gnu
             shell: bash
+            node: 20
           - os: ubuntu-24.04-arm
             platform: linux-arm64-gnu
             shell: bash
+            node: 20
           - os: macos-14        # arm64
             platform: darwin-arm64
             shell: bash
+            node: 20
           - os: macos-15-intel  # x64
             platform: darwin-x64
             shell: bash
+            node: 20
           - os: windows-latest
             platform: windows-x64
             shell: pwsh
-        node: [20]
+            node: 20
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -53,20 +53,11 @@ pull request is open.
 GitHub Actions validates the cross-platform builds and local-package smoke tests
 on the pull request.
 
-## 5. Create the Tag After Merge
+## 5. Maintainer Handoff
 
-After the pull request is merged:
+After the pull request is merged, release preparation is complete.
 
-1. Verify that the pull request is merged into `main` and identify its merge
-   commit.
-2. Ask the user for explicit approval to create and push the exact `vX.Y.Z` tag
-   at that commit.
-3. Only after approval, create the lightweight tag and push that tag to
-   `origin`.
-
-If the tag already exists locally or remotely, stop instead of moving or
-force-updating it.
-
-Do not run `npm publish`, create a GitHub Release, or add publishing credentials
-or internal pipeline configuration. A Microsoft maintainer handles publication
-through the internal release pipeline.
+Do not create or push a release tag, run `npm publish`, create a GitHub Release,
+or add publishing credentials or internal pipeline configuration. A Microsoft
+maintainer handles tagging and publication through the internal release
+pipeline.
