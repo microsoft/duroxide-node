@@ -282,9 +282,8 @@ npm run test:all         # Everything (52 tests)
 
 ## Releases
 
-Releases are published to npm through Microsoft's internal release pipelines.
-The GitHub Actions workflow in this repository only builds and smoke-tests the
-distribution artifacts.
+> **Releases are published by Microsoft's internal OSS infrastructure.** See
+> [RELEASE_POLICY.md](RELEASE_POLICY.md) for details.
 
 ## Support
 
