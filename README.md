@@ -280,6 +280,11 @@ npm run test:scenarios   # Scenario tests (6 tests)
 npm run test:all         # Everything (52 tests)
 ```
 
+## Releases
+
+> **Releases are published by Microsoft's internal OSS infrastructure.** See
+> [RELEASE_POLICY.md](RELEASE_POLICY.md) for details.
+
 ## Support
 
 Use GitHub Issues for bug reports and feature requests. Do not report security vulnerabilities through public GitHub issues; follow the instructions in [SECURITY.md](SECURITY.md) instead.
