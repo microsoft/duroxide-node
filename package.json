@@ -18,7 +18,6 @@
     "artifacts": "napi artifacts",
     "build": "napi build --platform --release",
     "build:debug": "napi build --platform",
-    "prepublishOnly": "napi prepublish -t npm",
     "test": "node --test __tests__/e2e.test.js __tests__/kv_store.test.js __tests__/races.test.js __tests__/admin_api.test.js __tests__/sessions.test.js __tests__/advanced_features.test.js __tests__/async_blocks.test.js __tests__/typed_apis.test.js __tests__/copilot_chat.test.js",
     "test:races": "node --test __tests__/races.test.js",
     "test:admin": "node --test __tests__/admin_api.test.js",
