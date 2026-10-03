@@ -47,7 +47,7 @@ This blocks the tokio thread synchronously while waiting for the JS callback to 
 Rust (tokio thread)                         JS (Node event loop)
 ───────────────────                         ────────────────────
 1. invoke(ctx, input)
-   ├─ Store ctx in ORCHESTRATION_CTXS[instance_id]
+   ├─ Store ctx in ORCHESTRATION_CTXS[token]   // token = "orch-{n}", new for every invocation
    ├─ call_create_blocking(payload) ──────► createGenerator(payload)
    │                                         ├─ Create OrchestrationContext
    │                                         ├─ Create generator: fn(ctx, input)
@@ -61,13 +61,15 @@ Rust (tokio thread)                         JS (Node event loop)
    │   │                                     └─ Return next task or completion
    │   │◄────────────────────────────────────┘
    │   └─ If completed/error: break
-   └─ Remove ctx from ORCHESTRATION_CTXS
+   └─ Remove ctx from ORCHESTRATION_CTXS[token]
 ```
 
 ### Key Rules for Orchestration Interop
 
 1. **Always use `call_*_blocking` methods** for JS calls from the orchestration handler — never `call_async().await`
 2. **Store ctx in `ORCHESTRATION_CTXS` before calling JS** — JS tracing needs it immediately
+   - Key it by the per-invocation token, never by `instance_id`. Two replays of one instance can be alive in the same process (a replay that lost its lock keeps running until its commit is rejected), and each must only reach its own context.
+   - Pass the token to JS in `ctxInfo._ctxToken`; the JS `OrchestrationContext` sends it back on every synchronous native call.
 3. **Remove ctx from `ORCHESTRATION_CTXS` on ALL exit paths** (success, error, and early return)
 4. **Call `dispose_fn` on completion** to clean up the JS generator
 
@@ -110,7 +112,7 @@ JS callbacks run on the Node event loop thread. Rust contexts live on tokio thre
 // Activity contexts — keyed by atomic token (unique per invocation)
 static ACTIVITY_CTXS: LazyLock<Mutex<HashMap<String, ActivityContext>>>
 
-// Orchestration contexts — keyed by instance_id
+// Orchestration contexts — keyed by atomic token (unique per invocation)
 static ORCHESTRATION_CTXS: LazyLock<Mutex<HashMap<String, OrchestrationContext>>>
 ```
 
@@ -119,7 +121,7 @@ static ORCHESTRATION_CTXS: LazyLock<Mutex<HashMap<String, OrchestrationContext>>
 ```javascript
 // In OrchestrationContext (fire-and-forget, no yield)
 traceInfo(message) {
-    orchestrationTraceLog(this.instanceId, 'info', String(message));
+    orchestrationTraceLog(this._ctxToken, 'info', String(message));
 }
 
 // In ActivityContext (fire-and-forget)
@@ -132,9 +134,9 @@ traceInfo(message) {
 
 ```rust
 #[napi]
-pub fn orchestration_trace_log(instance_id: String, level: String, message: String) {
-    handlers::orchestration_trace(&instance_id, &level, &message);
-    // → ORCHESTRATION_CTXS.get(instance_id).trace(level, message)
+pub fn orchestration_trace_log(token: String, level: String, message: String) {
+    handlers::orchestration_trace(&token, &level, &message);
+    // → ORCHESTRATION_CTXS.get(token).trace(level, message)
     //   which internally checks is_replaying
 }
 ```
@@ -238,13 +240,17 @@ Unsupported: `Join`, `Select` (nested — rejected with error), `ContinueAsNew`,
 
 ```rust
 pub fn activity_is_cancelled(token: &str) -> bool {
-    ACTIVITY_CTXS.lock().unwrap().get(token)
-        .map(|ctx| ctx.is_cancelled())
-        .unwrap_or(false)
+    let map = ACTIVITY_CTXS.lock();
+    match map.get(token) {
+        Some(ctx) => ctx.is_cancelled(),
+        None => true,
+    }
 }
 ```
 
 Cancellation mechanism: lock renewal failure → `cancellation_token.cancel()`. Detection latency = `workerLockTimeoutMs / 2`.
+
+A missing entry means cancelled. After the cancellation grace period (10 s) the runtime aborts the Rust future, which removes the entry, but the JS function keeps running. `isCancelled()` must keep answering `true` then.
 
 ## Common Pitfalls
 

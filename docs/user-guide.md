@@ -504,7 +504,11 @@ const provider = await PostgresProvider.connectWithSchema(
 const runtime = new Runtime(provider, {
   orchestrationConcurrency: 4,    // Max concurrent orchestration dispatches
   workerConcurrency: 8,           // Max concurrent activity workers
-  dispatcherPollInterval: 100,    // Polling interval in ms
+  dispatcherPollIntervalMs: 100,  // Polling interval in ms
+  workerLockTimeoutMs: 30_000,    // Activity lock timeout in ms
+  orchestratorLockTimeoutMs: 5000,        // Orchestration lock timeout in ms (see below)
+  orchestratorLockRenewalBufferMs: 2000,  // Renew this long before the lock runs out (timeouts >= 15s)
+  maxAttempts: 10,                // Fetch attempts before a message is treated as poison
   logLevel: 'info',               // Tracing log level
   logFormat: 'pretty',            // 'pretty' or 'json'
   serviceName: 'my-service',      // Service name for tracing metadata
@@ -514,6 +518,13 @@ const runtime = new Runtime(provider, {
   workerNodeId: 'pod-1',          // Stable worker identity for sessions
 });
 ```
+
+`orchestratorLockTimeoutMs` is how long a fetched orchestration item stays locked. The runtime
+renews the lock while a turn runs. If the process stalls for longer than the timeout (a long GC
+pause, a frozen container, a slow provider call), the lock runs out: another dispatcher picks the
+instance up, and the commit of the stalled turn is rejected. Raise the timeout when the provider is
+slow or the host can stall; it must be longer than the slowest fetch of an orchestration item.
+Use whole seconds.
 
 ## Metrics
 

@@ -208,6 +208,73 @@ describe('race() with mixed task types', () => {
     }
   });
 
+  it('isCancelled() stays true after the cancellation grace period', async () => {
+    const instanceId = uid('race-cancel-sticky');
+    const client = new Client(provider);
+    const runtime = new Runtime(provider, {
+      dispatcherPollIntervalMs: 50,
+      workerLockTimeoutMs: 2000,
+    });
+    // After it cancels an activity the runtime waits 10 s (the cancellation grace period),
+    // then gives up on the invocation. The JS function keeps running after that.
+    const GRACE_MS = 10000;
+    const AFTER_GRACE_MS = 3000;
+    const samples = [];
+    let firstCancelledAt = null;
+    let activityDone = false;
+
+    runtime.registerActivity('Stubborn', async (ctx) => {
+      const start = Date.now();
+      for (;;) {
+        const cancelled = ctx.isCancelled();
+        const now = Date.now();
+        if (cancelled && firstCancelledAt === null) firstCancelledAt = now;
+        samples.push({ at: now, cancelled });
+        if (firstCancelledAt !== null && now - firstCancelledAt > GRACE_MS + AFTER_GRACE_MS) break;
+        if (now - start > 40000) break;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      activityDone = true;
+      return 'late';
+    });
+    runtime.registerOrchestration('RaceTimerStubborn', function* (ctx) {
+      const winner = yield ctx.race(
+        ctx.scheduleTimer(50),
+        ctx.scheduleActivity('Stubborn', 'x'),
+      );
+      return winner;
+    });
+
+    await runtime.start();
+    try {
+      await client.startOrchestration(instanceId, 'RaceTimerStubborn', null);
+      const result = await client.waitForOrchestration(instanceId, 15000);
+      assert.strictEqual(result.status, 'Completed');
+      assert.strictEqual(result.output.index, 0);
+
+      for (let i = 0; i < 450 && !activityDone; i++) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      assert.ok(activityDone, 'activity should have finished its loop');
+      assert.notStrictEqual(firstCancelledAt, null, 'activity should have seen isCancelled()');
+
+      const sinceCancel = samples.filter((s) => s.at >= firstCancelledAt);
+      const last = sinceCancel[sinceCancel.length - 1];
+      assert.ok(
+        last.at - firstCancelledAt > GRACE_MS,
+        'the activity should have kept checking after the grace period',
+      );
+      const wentBack = sinceCancel.find((s) => !s.cancelled);
+      assert.strictEqual(
+        wentBack,
+        undefined,
+        wentBack && `isCancelled() went back to false ${wentBack.at - firstCancelledAt} ms after it was first true`,
+      );
+    } finally {
+      await runtime.shutdown(2000);
+    }
+  });
+
   it('races waitEvent vs timer (event wins)', async () => {
     const instanceId = uid('race-wait');
     const client = new Client(provider);

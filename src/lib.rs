@@ -32,8 +32,8 @@ pub fn activity_trace_log(token: String, level: String, message: String) {
 /// Delegates to OrchestrationContext.trace() which checks is_replaying
 /// and includes all structured fields (instance_id, orchestration_name, etc.)
 #[napi_derive::napi]
-pub fn orchestration_trace_log(instance_id: String, level: String, message: String) {
-    handlers::orchestration_trace(&instance_id, &level, &message);
+pub fn orchestration_trace_log(token: String, level: String, message: String) {
+    handlers::orchestration_trace(&token, &level, &message);
 }
 
 /// Check if an activity's cancellation token has been triggered.
@@ -58,61 +58,61 @@ pub fn activity_tag(token: String) -> Option<String> {
 
 /// Set custom status on an orchestration context (fire-and-forget, no yield needed).
 #[napi_derive::napi]
-pub fn orchestration_set_custom_status(instance_id: String, status: String) {
-    handlers::orchestration_set_custom_status(&instance_id, &status);
+pub fn orchestration_set_custom_status(token: String, status: String) {
+    handlers::orchestration_set_custom_status(&token, &status);
 }
 
 /// Reset (clear) custom status on an orchestration context (fire-and-forget, no yield needed).
 #[napi_derive::napi]
-pub fn orchestration_reset_custom_status(instance_id: String) {
-    handlers::orchestration_reset_custom_status(&instance_id);
+pub fn orchestration_reset_custom_status(token: String) {
+    handlers::orchestration_reset_custom_status(&token);
 }
 
 /// Read the current custom status value from an orchestration context.
 /// Returns null if no custom status has been set.
 #[napi_derive::napi]
-pub fn orchestration_get_custom_status(instance_id: String) -> Option<String> {
-    handlers::orchestration_get_custom_status(&instance_id)
+pub fn orchestration_get_custom_status(token: String) -> Option<String> {
+    handlers::orchestration_get_custom_status(&token)
 }
 
 #[napi_derive::napi]
-pub fn orchestration_set_value(instance_id: String, key: String, value: String) {
-    handlers::orchestration_set_value(&instance_id, &key, &value);
+pub fn orchestration_set_value(token: String, key: String, value: String) {
+    handlers::orchestration_set_value(&token, &key, &value);
 }
 
 #[napi_derive::napi]
-pub fn orchestration_get_value(instance_id: String, key: String) -> Option<String> {
-    handlers::orchestration_get_value(&instance_id, &key)
+pub fn orchestration_get_value(token: String, key: String) -> Option<String> {
+    handlers::orchestration_get_value(&token, &key)
 }
 
 #[napi_derive::napi]
-pub fn orchestration_clear_value(instance_id: String, key: String) {
-    handlers::orchestration_clear_value(&instance_id, &key);
+pub fn orchestration_clear_value(token: String, key: String) {
+    handlers::orchestration_clear_value(&token, &key);
 }
 
 #[napi_derive::napi]
-pub fn orchestration_clear_all_values(instance_id: String) {
-    handlers::orchestration_clear_all_values(&instance_id);
+pub fn orchestration_clear_all_values(token: String) {
+    handlers::orchestration_clear_all_values(&token);
 }
 
 #[napi_derive::napi]
-pub fn orchestration_get_kv_all_values(instance_id: String) -> HashMap<String, String> {
-    handlers::orchestration_get_kv_all_values(&instance_id)
+pub fn orchestration_get_kv_all_values(token: String) -> HashMap<String, String> {
+    handlers::orchestration_get_kv_all_values(&token)
 }
 
 #[napi_derive::napi]
-pub fn orchestration_get_kv_all_keys(instance_id: String) -> Vec<String> {
-    handlers::orchestration_get_kv_all_keys(&instance_id)
+pub fn orchestration_get_kv_all_keys(token: String) -> Vec<String> {
+    handlers::orchestration_get_kv_all_keys(&token)
 }
 
 #[napi_derive::napi]
-pub fn orchestration_get_kv_length(instance_id: String) -> u32 {
-    handlers::orchestration_get_kv_length(&instance_id)
+pub fn orchestration_get_kv_length(token: String) -> u32 {
+    handlers::orchestration_get_kv_length(&token)
 }
 
 #[napi_derive::napi]
-pub fn orchestration_prune_kv_values(instance_id: String, cutoff_ms: i64) -> u32 {
-    handlers::orchestration_prune_kv_values(&instance_id, cutoff_ms.max(0) as u64)
+pub fn orchestration_prune_kv_values(token: String, cutoff_ms: i64) -> u32 {
+    handlers::orchestration_prune_kv_values(&token, cutoff_ms.max(0) as u64)
 }
 
 /// Options for `initTracing`. Call before `runtime.start()` to direct

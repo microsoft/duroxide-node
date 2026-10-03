@@ -31,6 +31,17 @@ pub struct JsRuntimeOptions {
     /// Worker lock timeout in ms (default: 30000). Controls how often the activity
     /// manager renews locks, which affects cancellation detection speed.
     pub worker_lock_timeout_ms: Option<i64>,
+    /// Orchestrator lock timeout in ms (default: 5000). A fetched orchestration item
+    /// stays locked for this long; the runtime renews the lock while the turn runs.
+    /// It must be longer than the slowest fetch of an orchestration item, or the lock
+    /// is already gone when the turn commits. Use whole seconds.
+    pub orchestrator_lock_timeout_ms: Option<i64>,
+    /// Orchestrator lock renewal buffer in ms (default: 2000). With a lock timeout of
+    /// 15s or more, the lock is renewed this long before it runs out. With a shorter
+    /// timeout the runtime renews at half the timeout and ignores this value.
+    pub orchestrator_lock_renewal_buffer_ms: Option<i64>,
+    /// How many times a message is fetched before it is treated as poison (default: 10).
+    pub max_attempts: Option<i32>,
     /// Log format: "json", "pretty", or "compact" (default)
     pub log_format: Option<String>,
     /// Log level filter: "info", "debug", "warn", "error", etc.
@@ -200,6 +211,15 @@ impl JsRuntime {
             }
             if let Some(ms) = opts.worker_lock_timeout_ms {
                 rt_options.worker_lock_timeout = Duration::from_millis(ms as u64);
+            }
+            if let Some(ms) = opts.orchestrator_lock_timeout_ms {
+                rt_options.orchestrator_lock_timeout = Duration::from_millis(ms as u64);
+            }
+            if let Some(ms) = opts.orchestrator_lock_renewal_buffer_ms {
+                rt_options.orchestrator_lock_renewal_buffer = Duration::from_millis(ms as u64);
+            }
+            if let Some(n) = opts.max_attempts {
+                rt_options.max_attempts = n as u32;
             }
             if let Some(ref fmt) = opts.log_format {
                 rt_options.observability.log_format = match fmt.as_str() {

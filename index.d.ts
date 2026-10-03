@@ -46,6 +46,21 @@ export interface JsRuntimeOptions {
    * manager renews locks, which affects cancellation detection speed.
    */
   workerLockTimeoutMs?: number
+  /**
+   * Orchestrator lock timeout in ms (default: 5000). A fetched orchestration item
+   * stays locked for this long; the runtime renews the lock while the turn runs.
+   * It must be longer than the slowest fetch of an orchestration item, or the lock
+   * is already gone when the turn commits. Use whole seconds.
+   */
+  orchestratorLockTimeoutMs?: number
+  /**
+   * Orchestrator lock renewal buffer in ms (default: 2000). With a lock timeout of
+   * 15s or more, the lock is renewed this long before it runs out. With a shorter
+   * timeout the runtime renews at half the timeout and ignores this value.
+   */
+  orchestratorLockRenewalBufferMs?: number
+  /** How many times a message is fetched before it is treated as poison (default: 10). */
+  maxAttempts?: number
   /** Log format: "json", "pretty", or "compact" (default) */
   logFormat?: string
   /** Log level filter: "info", "debug", "warn", "error", etc. */
@@ -190,7 +205,7 @@ export declare function activityTraceLog(token: string, level: string, message: 
  * Delegates to OrchestrationContext.trace() which checks is_replaying
  * and includes all structured fields (instance_id, orchestration_name, etc.)
  */
-export declare function orchestrationTraceLog(instanceId: string, level: string, message: string): void
+export declare function orchestrationTraceLog(token: string, level: string, message: string): void
 /**
  * Check if an activity's cancellation token has been triggered.
  * Returns true if the activity has been cancelled (e.g., due to losing a race/select).
@@ -204,22 +219,22 @@ export declare function activityGetClient(token: string): JsClient | null
  */
 export declare function activityTag(token: string): string | null
 /** Set custom status on an orchestration context (fire-and-forget, no yield needed). */
-export declare function orchestrationSetCustomStatus(instanceId: string, status: string): void
+export declare function orchestrationSetCustomStatus(token: string, status: string): void
 /** Reset (clear) custom status on an orchestration context (fire-and-forget, no yield needed). */
-export declare function orchestrationResetCustomStatus(instanceId: string): void
+export declare function orchestrationResetCustomStatus(token: string): void
 /**
  * Read the current custom status value from an orchestration context.
  * Returns null if no custom status has been set.
  */
-export declare function orchestrationGetCustomStatus(instanceId: string): string | null
-export declare function orchestrationSetValue(instanceId: string, key: string, value: string): void
-export declare function orchestrationGetValue(instanceId: string, key: string): string | null
-export declare function orchestrationClearValue(instanceId: string, key: string): void
-export declare function orchestrationClearAllValues(instanceId: string): void
-export declare function orchestrationGetKvAllValues(instanceId: string): Record<string, string>
-export declare function orchestrationGetKvAllKeys(instanceId: string): Array<string>
-export declare function orchestrationGetKvLength(instanceId: string): number
-export declare function orchestrationPruneKvValues(instanceId: string, cutoffMs: number): number
+export declare function orchestrationGetCustomStatus(token: string): string | null
+export declare function orchestrationSetValue(token: string, key: string, value: string): void
+export declare function orchestrationGetValue(token: string, key: string): string | null
+export declare function orchestrationClearValue(token: string, key: string): void
+export declare function orchestrationClearAllValues(token: string): void
+export declare function orchestrationGetKvAllValues(token: string): Record<string, string>
+export declare function orchestrationGetKvAllKeys(token: string): Array<string>
+export declare function orchestrationGetKvLength(token: string): number
+export declare function orchestrationPruneKvValues(token: string, cutoffMs: number): number
 /**
  * Options for `initTracing`. Call before `runtime.start()` to direct
  * Rust tracing output to a file instead of stdout.

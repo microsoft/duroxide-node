@@ -38,9 +38,17 @@ impl Drop for ActivityCtxGuard {
 }
 
 /// Called from JS to check if an activity has been cancelled.
+///
+/// A missing entry also means cancelled. The entry is removed when the Rust side of the
+/// invocation ends. That happens while the JS function is still running when the runtime
+/// gives up on a cancelled activity after the grace period. The answer must not go back
+/// to `false` at that point.
 pub fn activity_is_cancelled(token: &str) -> bool {
     let map = ACTIVITY_CTXS.lock();
-    map.get(token).is_some_and(|ctx| ctx.is_cancelled())
+    match map.get(token) {
+        Some(ctx) => ctx.is_cancelled(),
+        None => true,
+    }
 }
 
 /// Called from JS to get a Client from the ActivityContext.
@@ -68,24 +76,32 @@ pub fn activity_trace(token: &str, level: &str, message: &str) {
     }
 }
 
-// Global map for orchestration contexts (keyed by instance_id).
+// Global map for orchestration contexts, keyed by a unique token per invocation.
+// One invocation = one replay of one instance. Two replays of the same instance can be
+// alive in one process (a replay that lost its lock keeps running), so the key must not
+// be the instance id.
 // Inserted before calling JS, removed when the handler future is dropped.
 static ORCHESTRATION_CTXS: std::sync::LazyLock<Mutex<HashMap<String, OrchestrationContext>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
+static ORCHESTRATION_TOKEN_COUNTER: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+fn new_orchestration_token() -> String {
+    let id = ORCHESTRATION_TOKEN_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    format!("orch-{id}")
+}
+
 struct OrchestrationInvokeGuard {
-    instance_id: String,
+    token: String,
     gen_id: Option<u64>,
     dispose_fn: ThreadsafeFunction<String, ErrorStrategy::Fatal>,
 }
 
 impl OrchestrationInvokeGuard {
-    fn new(
-        instance_id: String,
-        dispose_fn: ThreadsafeFunction<String, ErrorStrategy::Fatal>,
-    ) -> Self {
+    fn new(token: String, dispose_fn: ThreadsafeFunction<String, ErrorStrategy::Fatal>) -> Self {
         Self {
-            instance_id,
+            token,
             gen_id: None,
             dispose_fn,
         }
@@ -98,7 +114,7 @@ impl OrchestrationInvokeGuard {
 
 impl Drop for OrchestrationInvokeGuard {
     fn drop(&mut self) {
-        ORCHESTRATION_CTXS.lock().remove(&self.instance_id);
+        ORCHESTRATION_CTXS.lock().remove(&self.token);
 
         let Some(gen_id) = self.gen_id.take() else {
             return;
@@ -119,93 +135,93 @@ impl Drop for OrchestrationInvokeGuard {
 
 /// Called from JS to trace through the Rust OrchestrationContext.
 /// Delegates to ctx.trace() which has the correct is_replaying guard.
-pub fn orchestration_trace(instance_id: &str, level: &str, message: &str) {
+pub fn orchestration_trace(token: &str, level: &str, message: &str) {
     let map = ORCHESTRATION_CTXS.lock();
-    if let Some(ctx) = map.get(instance_id) {
+    if let Some(ctx) = map.get(token) {
         ctx.trace(level, message);
     }
 }
 
 /// Called from JS to set custom status on the OrchestrationContext.
-pub fn orchestration_set_custom_status(instance_id: &str, status: &str) {
+pub fn orchestration_set_custom_status(token: &str, status: &str) {
     let map = ORCHESTRATION_CTXS.lock();
-    if let Some(ctx) = map.get(instance_id) {
+    if let Some(ctx) = map.get(token) {
         ctx.set_custom_status(status);
     }
 }
 
 /// Called from JS to reset (clear) custom status on the OrchestrationContext.
-pub fn orchestration_reset_custom_status(instance_id: &str) {
+pub fn orchestration_reset_custom_status(token: &str) {
     let map = ORCHESTRATION_CTXS.lock();
-    if let Some(ctx) = map.get(instance_id) {
+    if let Some(ctx) = map.get(token) {
         ctx.reset_custom_status();
     }
 }
 
 /// Called from JS to read the current custom status from the OrchestrationContext.
-pub fn orchestration_get_custom_status(instance_id: &str) -> Option<String> {
+pub fn orchestration_get_custom_status(token: &str) -> Option<String> {
     let map = ORCHESTRATION_CTXS.lock();
-    map.get(instance_id).and_then(|ctx| ctx.get_custom_status())
+    map.get(token).and_then(|ctx| ctx.get_custom_status())
 }
 
 /// Called from JS to set a KV value on the OrchestrationContext.
-pub fn orchestration_set_value(instance_id: &str, key: &str, value: &str) {
+pub fn orchestration_set_value(token: &str, key: &str, value: &str) {
     let map = ORCHESTRATION_CTXS.lock();
-    if let Some(ctx) = map.get(instance_id) {
+    if let Some(ctx) = map.get(token) {
         ctx.set_kv_value(key, value);
     }
 }
 
 /// Called from JS to read the current KV value from the OrchestrationContext.
-pub fn orchestration_get_value(instance_id: &str, key: &str) -> Option<String> {
+pub fn orchestration_get_value(token: &str, key: &str) -> Option<String> {
     let map = ORCHESTRATION_CTXS.lock();
-    map.get(instance_id).and_then(|ctx| ctx.get_kv_value(key))
+    map.get(token).and_then(|ctx| ctx.get_kv_value(key))
 }
 
 /// Called from JS to clear a KV value on the OrchestrationContext.
-pub fn orchestration_clear_value(instance_id: &str, key: &str) {
+pub fn orchestration_clear_value(token: &str, key: &str) {
     let map = ORCHESTRATION_CTXS.lock();
-    if let Some(ctx) = map.get(instance_id) {
+    if let Some(ctx) = map.get(token) {
         ctx.clear_kv_value(key);
     }
 }
 
 /// Called from JS to clear all KV values on the OrchestrationContext.
-pub fn orchestration_clear_all_values(instance_id: &str) {
+pub fn orchestration_clear_all_values(token: &str) {
     let map = ORCHESTRATION_CTXS.lock();
-    if let Some(ctx) = map.get(instance_id) {
+    if let Some(ctx) = map.get(token) {
         ctx.clear_all_kv_values();
     }
 }
 
 /// Called from JS to read all KV values from the OrchestrationContext.
-pub fn orchestration_get_kv_all_values(instance_id: &str) -> HashMap<String, String> {
+pub fn orchestration_get_kv_all_values(token: &str) -> HashMap<String, String> {
     let map = ORCHESTRATION_CTXS.lock();
-    map.get(instance_id)
+    map.get(token)
         .map(|ctx| ctx.get_kv_all_values())
         .unwrap_or_default()
 }
 
 /// Called from JS to read all KV keys from the OrchestrationContext.
-pub fn orchestration_get_kv_all_keys(instance_id: &str) -> Vec<String> {
+pub fn orchestration_get_kv_all_keys(token: &str) -> Vec<String> {
     let map = ORCHESTRATION_CTXS.lock();
-    map.get(instance_id)
+    map.get(token)
         .map(|ctx| ctx.get_kv_all_keys())
         .unwrap_or_default()
 }
 
 /// Called from JS to read the current KV length from the OrchestrationContext.
-pub fn orchestration_get_kv_length(instance_id: &str) -> u32 {
+pub fn orchestration_get_kv_length(token: &str) -> u32 {
     let map = ORCHESTRATION_CTXS.lock();
-    map.get(instance_id)
+    map.get(token)
         .map(|ctx| ctx.get_kv_length() as u32)
         .unwrap_or(0)
 }
 
 /// Called from JS to prune KV values older than the supplied cutoff.
-pub fn orchestration_prune_kv_values(instance_id: &str, cutoff_ms: u64) -> u32 {
+pub fn orchestration_prune_kv_values(token: &str, cutoff_ms: u64) -> u32 {
     let map = ORCHESTRATION_CTXS.lock();
-    map.get(instance_id)
+    map.get(token)
         .map(|ctx| ctx.prune_kv_values_updated_before(cutoff_ms) as u32)
         .unwrap_or(0)
 }
@@ -778,17 +794,18 @@ fn make_join_future(
 #[async_trait::async_trait]
 impl duroxide::runtime::OrchestrationHandler for JsOrchestrationHandler {
     async fn invoke(&self, ctx: OrchestrationContext, input: String) -> Result<String, String> {
-        let instance_id = ctx.instance_id().to_string();
-
-        // Store ctx in global map so JS trace calls can delegate to it
-        ORCHESTRATION_CTXS.lock().insert(instance_id.clone(), ctx.clone());
-        let mut guard = OrchestrationInvokeGuard::new(instance_id.clone(), self.dispose_fn.clone());
+        // Store ctx in global map under a token that only this invocation knows,
+        // so JS calls made by this replay reach this replay's context and no other.
+        let token = new_orchestration_token();
+        ORCHESTRATION_CTXS.lock().insert(token.clone(), ctx.clone());
+        let mut guard = OrchestrationInvokeGuard::new(token.clone(), self.dispose_fn.clone());
 
         let ctx_info = serde_json::json!({
             "instanceId": ctx.instance_id(),
             "executionId": ctx.execution_id(),
             "orchestrationName": ctx.orchestration_name(),
             "orchestrationVersion": ctx.orchestration_version(),
+            "_ctxToken": token,
         });
 
         let payload = serde_json::json!({

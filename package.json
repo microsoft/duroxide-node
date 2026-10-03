@@ -18,7 +18,7 @@
     "artifacts": "napi artifacts",
     "build": "napi build --platform --release",
     "build:debug": "napi build --platform",
-    "test": "node --test __tests__/e2e.test.js __tests__/kv_store.test.js __tests__/races.test.js __tests__/admin_api.test.js __tests__/sessions.test.js __tests__/advanced_features.test.js __tests__/async_blocks.test.js __tests__/typed_apis.test.js __tests__/copilot_chat.test.js",
+    "test": "node --test __tests__/e2e.test.js __tests__/kv_store.test.js __tests__/races.test.js __tests__/admin_api.test.js __tests__/sessions.test.js __tests__/advanced_features.test.js __tests__/async_blocks.test.js __tests__/typed_apis.test.js __tests__/copilot_chat.test.js __tests__/replay_isolation.test.js",
     "test:races": "node --test __tests__/races.test.js",
     "test:admin": "node --test __tests__/admin_api.test.js",
     "test:scenarios": "node --test __tests__/scenarios/*.test.js",

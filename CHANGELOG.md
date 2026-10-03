@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Replays of the same instance no longer share a native context.** The synchronous
+  context calls (`ctx.setValue` / `ctx.getValue` and the other KV calls,
+  `ctx.setCustomStatus` / `ctx.getCustomStatus`, and `ctx.trace*`) found the Rust
+  `OrchestrationContext` by instance ID. Two replays of one instance can be alive in the
+  same process: a replay that lost its orchestration lock (for example after the process
+  stalled for longer than the lock timeout) keeps running until its commit is rejected,
+  and another dispatcher slot can fetch the instance again. Calls from one replay then
+  reached the other. The replay that held the lock could commit events it never
+  produced, and the next replay failed with `nondeterministic: kv set mismatch` or
+  `nondeterministic: schedule mismatch`. The context is now looked up by a token that is
+  new for every invocation, the same way activity contexts already work.
+- **`ctx.isCancelled()` no longer goes back to `false`.** After it cancels an activity the
+  runtime waits for the cancellation grace period (10 s) and then drops its side of the
+  invocation. The JS activity function keeps running, and from that moment `isCancelled()`
+  answered `false` again. An activity that checked late never saw the cancellation. A
+  cancelled activity now reads `true` for as long as it runs.
+
+### Changed
+
+- **Bumped `duroxide-pg` dependency** — `0.1.34` → `0.1.35`.
+
+### Added
+
+- **`orchestratorLockTimeoutMs`, `orchestratorLockRenewalBufferMs`, `maxAttempts` runtime
+  options** — map to `orchestrator_lock_timeout`, `orchestrator_lock_renewal_buffer` and
+  `max_attempts` of the Rust runtime (#11).
+- `__tests__/replay_isolation.test.js` — regression tests that stop the process in the
+  middle of a replay for longer than the orchestration lock timeout (POSIX only).
+
 ## [0.1.29] - 2026-09-03
 
 ### Changed

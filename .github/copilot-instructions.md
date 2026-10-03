@@ -68,7 +68,7 @@ runtime.registerActivity('Work', async (ctx, input) => {
 
 Tracing in both orchestrations and activities delegates to Rust contexts via global `HashMap`s. **Do NOT reimplement tracing in JS.**
 
-- **Orchestration tracing**: `orchestrationTraceLog(instanceId, level, message)` → looks up `OrchestrationContext` from `ORCHESTRATION_CTXS` map → calls `ctx.trace()` which handles `is_replaying` suppression
+- **Orchestration tracing**: `orchestrationTraceLog(ctxToken, level, message)` → looks up `OrchestrationContext` from `ORCHESTRATION_CTXS` map → calls `ctx.trace()` which handles `is_replaying` suppression
 - **Activity tracing**: `activityTraceLog(token, level, message)` → looks up `ActivityContext` from `ACTIVITY_CTXS` map → calls `ctx.trace_info()` etc. with full structured fields
 
 The `is_replaying` guard lives entirely on the Rust side. JS never knows about replay state.
@@ -142,7 +142,7 @@ if (provider._type === 'postgres') {
 
 **Global context maps** for cross-thread tracing:
 - `ACTIVITY_CTXS: HashMap<String, ActivityContext>` — keyed by atomic token (`act-0`, `act-1`, ...)
-- `ORCHESTRATION_CTXS: HashMap<String, OrchestrationContext>` — keyed by `instance_id`
+- `ORCHESTRATION_CTXS: HashMap<String, OrchestrationContext>` — keyed by atomic token (`orch-0`, `orch-1`, ...), one per invocation. Never key it by `instance_id`: two replays of one instance can be alive in the same process, and each must only reach its own context. JS gets the token in `ctxInfo._ctxToken`.
 - Contexts are inserted before calling JS, removed after completion
 
 **select/race** uses `make_select_future()` which returns `Pin<Box<dyn Future<Output = String>>>` to handle all task types uniformly.
@@ -151,7 +151,7 @@ if (provider._type === 'postgres') {
 
 **Nested join/select rejection** — `Join` and `Select` handlers reject nested `Join`/`Select` tasks to avoid recursive async issues.
 
-**Activity cancellation** — `ctx.isCancelled()` checks the Rust `CancellationToken` via `ACTIVITY_CTXS` map. Cancellation is detected via lock renewal failure (latency = `workerLockTimeoutMs / 2`).
+**Activity cancellation** — `ctx.isCancelled()` checks the Rust `CancellationToken` via `ACTIVITY_CTXS` map. Cancellation is detected via lock renewal failure (latency = `workerLockTimeoutMs / 2`). A missing map entry also means cancelled: the runtime removes the entry when it gives up on a cancelled activity after the grace period, while the JS function is still running.
 
 **Activity client access** — `ctx.getClient()` calls `activityGetClient(token)` napi function → looks up `ActivityContext` in `ACTIVITY_CTXS` map → calls `ctx.get_client()` → wraps result as `JsClient`. Activities can use this to start orchestrations, raise events, etc.
 
@@ -172,7 +172,7 @@ Activities have no restrictions — they run once, result is cached.
 Release manifests must resolve `duroxide` and `duroxide-pg` from crates.io:
 ```toml
 duroxide = { version = "0.1.30", features = ["sqlite"] }
-duroxide-pg = "0.1.34"
+duroxide-pg = "0.1.35"
 ```
 
 Temporary local `[patch.crates-io]` sections or inline `path =` overrides are
