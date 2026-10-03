@@ -130,13 +130,15 @@ function spin(ms) {
  * function spins until it sees the clock jump.
  */
 function freezeThisProcess(seconds) {
+  // Read the clock before the helper starts. The helper can stop this process
+  // before spawn() returns, and the loop below must still see the gap.
+  const start = performance.now();
+  let last = start;
   const helper = spawn('sh', ['-c', `kill -STOP ${process.pid}; sleep ${seconds}; kill -CONT ${process.pid}`], {
     detached: true,
     stdio: 'ignore',
   });
   helper.unref();
-  const start = performance.now();
-  let last = start;
   for (;;) {
     const now = performance.now();
     if (now - last > 2000) return Math.round(now - last);
