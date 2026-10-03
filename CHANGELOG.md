@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.30] - 2026-10-03
+
 ### Fixed
 
 - **Replays of the same instance no longer share a native context.** The synchronous
