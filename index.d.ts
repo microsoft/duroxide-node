@@ -47,6 +47,12 @@ export interface JsRuntimeOptions {
    */
   workerLockTimeoutMs?: number
   /**
+   * Worker lock renewal buffer in ms (default: 5000). With a worker lock timeout of
+   * 15s or more, an activity's lock is renewed this long before it runs out. With a
+   * shorter timeout the runtime renews at half the timeout and ignores this value.
+   */
+  workerLockRenewalBufferMs?: number
+  /**
    * Orchestrator lock timeout in ms (default: 5000). A fetched orchestration item
    * stays locked for this long; the runtime renews the lock while the turn runs.
    * It must be longer than the slowest fetch of an orchestration item, or the lock
@@ -73,6 +79,19 @@ export interface JsRuntimeOptions {
   maxSessionsPerRuntime?: number
   /** Session idle timeout in ms (default: 300000 = 5 minutes) */
   sessionIdleTimeoutMs?: number
+  /**
+   * Session lock timeout in ms (default: 30000). The worker that runs a session's
+   * activities owns the session for this long, and renews the lock while the session
+   * is active. If that worker stops, another worker can take the session over once
+   * the lock runs out.
+   */
+  sessionLockTimeoutMs?: number
+  /**
+   * Session lock renewal buffer in ms (default: 5000). With a session lock timeout of
+   * 15s or more, the lock is renewed this long before it runs out. With a shorter
+   * timeout the runtime renews at half the timeout and ignores this value.
+   */
+  sessionLockRenewalBufferMs?: number
   /** Stable worker identity for session ownership (e.g., K8s pod name) */
   workerNodeId?: string
   /**

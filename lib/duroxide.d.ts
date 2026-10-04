@@ -37,7 +37,10 @@ export interface JoinResult<T = unknown> {
   err?: unknown;
 }
 
-/** Result from ctx.race() / ctx.raceTyped(). */
+/**
+ * Result from ctx.race() / ctx.raceTyped(): the index and value of the winner.
+ * A winner that failed is not returned: the yield throws its error.
+ */
 export interface RaceResult<T = unknown> {
   index: number;
   value: T;
@@ -85,6 +88,10 @@ export declare class OrchestrationContext {
   // ─── Composition helpers ───────────────────────────────
 
   all(tasks: ScheduledTask[]): ScheduledTask;
+  /**
+   * Race two tasks. The yield returns a RaceResult for the winner. If the winner
+   * failed, the yield throws the same error as yielding that task on its own.
+   */
   race(...tasks: ScheduledTask[]): ScheduledTask;
 
   // ─── Typed variants (auto-parse JSON results) ─────────
@@ -154,7 +161,8 @@ export declare class OrchestrationContext {
 
   /**
    * Race multiple tasks with auto-parsed winner value.
-   * The winning value is auto-parsed from JSON.
+   * The winning value is auto-parsed from JSON. If the winner failed, the yield
+   * throws the same error as yielding that task on its own.
    */
   raceTyped<TResult = unknown>(...tasks: ScheduledTask[]): ScheduledTask;
 

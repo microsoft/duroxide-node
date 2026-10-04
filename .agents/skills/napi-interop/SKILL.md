@@ -212,12 +212,14 @@ When adding a new provider, follow this same pattern — constructor for default
 
 ## select/race Implementation
 
-`select` maps to Rust's `ctx.select2()`, which requires exactly 2 futures. `make_select_future()` converts a `ScheduledTask` to `Pin<Box<dyn Future<Output = String> + Send + '_>>`:
+`select` maps to Rust's `ctx.select2()`, which requires exactly 2 futures. `make_select_future()` converts a `ScheduledTask` to `Pin<Box<dyn Future<Output = Result<String, String>> + Send + '_>>`:
 
 ```rust
 fn make_select_future(ctx: &OrchestrationContext, task: ScheduledTask)
-    -> Pin<Box<dyn Future<Output = String> + Send + '_>>
+    -> Pin<Box<dyn Future<Output = Result<String, String>> + Send + '_>>
 ```
+
+`select_result()` turns the winner into the task result. A winner that succeeded becomes `{ index, value }`. A winner that failed becomes `TaskResult::Err` with the task's own error text, so the `yield` throws exactly as it does for that task alone.
 
 Supported in select: `Activity`, `ActivityWithRetry`, `Timer`, `WaitEvent`, `SubOrchestration`, `SubOrchestrationWithId`, `SubOrchestrationVersioned`, `SubOrchestrationVersionedWithId`.
 Unsupported: `Join`, `Select` (nested — rejected with error), `ContinueAsNew`, `NewGuid`, `UtcNow`.

@@ -352,6 +352,166 @@ describe('race() with mixed task types', () => {
   });
 });
 
+// ─── ctx.race() when the winner failed ──────────────────────────
+//
+// A winner that failed makes the yield throw. The error is the one the orchestration
+// gets when it yields that task on its own: same type, same message.
+
+describe('race() with a failed winner', () => {
+  it('throws the error of a failed activity, and the orchestration can go on', async () => {
+    const result = await runOrchestration('RaceFailedActivity', null, (rt) => {
+      rt.registerActivity('Boom', async (ctx, input) => {
+        throw new Error(`boom-${input}`);
+      });
+      rt.registerActivity('Fast', async (ctx, input) => `fast-${input}`);
+      rt.registerOrchestration('RaceFailedActivity', function* (ctx) {
+        let direct;
+        try {
+          yield ctx.scheduleActivity('Boom', 'x');
+        } catch (e) {
+          direct = { message: e.message, isError: e instanceof Error };
+        }
+        let raced;
+        try {
+          const winner = yield ctx.race(
+            ctx.scheduleActivity('Boom', 'x'),
+            ctx.scheduleTimer(60000),
+          );
+          raced = { returned: winner };
+        } catch (e) {
+          raced = { message: e.message, isError: e instanceof Error };
+        }
+        // The orchestration catches the error and schedules more work.
+        const after = yield ctx.scheduleActivity('Fast', 'after');
+        return { direct, raced, after };
+      });
+    });
+    assert.strictEqual(result.status, 'Completed');
+    const { direct, raced, after } = result.output;
+    assert.ok(direct && direct.isError, 'the direct yield should throw');
+    assert.match(direct.message, /boom-x/);
+    assert.strictEqual(raced.returned, undefined, 'the race should throw, not return');
+    assert.strictEqual(raced.isError, true);
+    assert.strictEqual(raced.message, direct.message);
+    assert.strictEqual(after, 'fast-after');
+  });
+
+  it('throws when the failed winner is the second task', async () => {
+    const result = await runOrchestration('RaceFailedSecond', null, (rt) => {
+      rt.registerActivity('Boom', async () => {
+        throw new Error('second-boom');
+      });
+      rt.registerOrchestration('RaceFailedSecond', function* (ctx) {
+        try {
+          return yield ctx.race(
+            ctx.scheduleTimer(60000),
+            ctx.scheduleActivity('Boom', null),
+          );
+        } catch (e) {
+          return { caught: e.message };
+        }
+      });
+    });
+    assert.strictEqual(result.status, 'Completed');
+    assert.match(result.output.caught, /second-boom/);
+  });
+
+  it('throws the error of a failed sub-orchestration', async () => {
+    const result = await runOrchestration('RaceFailedChildParent', null, (rt) => {
+      rt.registerOrchestration('RaceFailedChild', function* () {
+        throw new Error('child-boom');
+      });
+      rt.registerOrchestration('RaceFailedChildParent', function* (ctx) {
+        let direct;
+        try {
+          yield ctx.scheduleSubOrchestration('RaceFailedChild', null);
+        } catch (e) {
+          direct = e.message;
+        }
+        let raced;
+        try {
+          raced = { returned: yield ctx.race(
+            ctx.scheduleSubOrchestration('RaceFailedChild', null),
+            ctx.scheduleTimer(60000),
+          ) };
+        } catch (e) {
+          raced = { message: e.message };
+        }
+        return { direct, raced };
+      });
+    });
+    assert.strictEqual(result.status, 'Completed');
+    assert.match(result.output.direct, /child-boom/);
+    assert.strictEqual(result.output.raced.returned, undefined, 'the race should throw, not return');
+    assert.strictEqual(result.output.raced.message, result.output.direct);
+  });
+
+  it('an uncaught failed winner fails the orchestration', async () => {
+    const result = await runOrchestration('RaceFailedUncaught', null, (rt) => {
+      rt.registerActivity('Boom', async () => {
+        throw new Error('uncaught-boom');
+      });
+      rt.registerOrchestration('RaceFailedUncaught', function* (ctx) {
+        return yield ctx.race(
+          ctx.scheduleActivity('Boom', null),
+          ctx.scheduleTimer(60000),
+        );
+      });
+    });
+    assert.strictEqual(result.status, 'Failed');
+    assert.match(result.error, /uncaught-boom/);
+  });
+
+  it('a timer that wins over a failing activity returns as before', async () => {
+    const result = await runOrchestration('RaceTimerBeatsBoom', null, (rt) => {
+      rt.registerActivity('SlowBoom', async (ctx) => {
+        for (let i = 0; i < 40 && !ctx.isCancelled(); i++) {
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        throw new Error('too-late');
+      });
+      rt.registerOrchestration('RaceTimerBeatsBoom', function* (ctx) {
+        return yield ctx.race(
+          ctx.scheduleTimer(50),
+          ctx.scheduleActivity('SlowBoom', null),
+        );
+      });
+    });
+    assert.strictEqual(result.status, 'Completed');
+    assert.strictEqual(result.output.index, 0);
+    assert.strictEqual(result.output.value, null);
+  });
+
+  it('raceTyped throws the same error, and still parses a successful winner', async () => {
+    const result = await runOrchestration('RaceTypedFailed', null, (rt) => {
+      rt.registerActivity('Boom', async () => {
+        throw new Error('typed-boom');
+      });
+      rt.registerActivity('Obj', async () => ({ a: 1 }));
+      rt.registerOrchestration('RaceTypedFailed', function* (ctx) {
+        let caught;
+        try {
+          yield ctx.raceTyped(
+            ctx.scheduleActivityTyped('Boom', null),
+            ctx.scheduleTimer(60000),
+          );
+        } catch (e) {
+          caught = { message: e.message, isError: e instanceof Error };
+        }
+        const winner = yield ctx.raceTyped(
+          ctx.scheduleActivityTyped('Obj', null),
+          ctx.scheduleTimer(60000),
+        );
+        return { caught, winner };
+      });
+    });
+    assert.strictEqual(result.status, 'Completed');
+    assert.strictEqual(result.output.caught.isError, true);
+    assert.match(result.output.caught.message, /typed-boom/);
+    assert.deepStrictEqual(result.output.winner, { index: 0, value: { a: 1 } });
+  });
+});
+
 // ─── Type preservation through all() and race() ─────────────────
 
 describe('type preservation', () => {

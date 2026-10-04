@@ -145,7 +145,7 @@ if (provider._type === 'postgres') {
 - `ORCHESTRATION_CTXS: HashMap<String, OrchestrationContext>` — keyed by atomic token (`orch-0`, `orch-1`, ...), one per invocation. Never key it by `instance_id`: two replays of one instance can be alive in the same process, and each must only reach its own context. JS gets the token in `ctxInfo._ctxToken`.
 - Contexts are inserted before calling JS, removed after completion
 
-**select/race** uses `make_select_future()` which returns `Pin<Box<dyn Future<Output = String>>>` to handle all task types uniformly.
+**select/race** uses `make_select_future()` which returns `Pin<Box<dyn Future<Output = Result<String, String>>>>` to handle all task types uniformly. `select_result()` returns `{ index, value }` for a winner that succeeded, and the winner's own error for one that failed, so the `yield` throws.
 
 **join/all** uses `make_join_future()` — similar to `make_select_future()` but normalizes output to `{ok:v}/{err:e}` JSON. Supports all task types: activities, timers, waits, sub-orchestrations (all variants).
 

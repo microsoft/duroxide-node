@@ -1,6 +1,6 @@
 {
   "name": "duroxide",
-  "version": "0.1.30",
+  "version": "0.2.0",
   "description": "Durable execution runtime for Node.js, powered by Rust",
   "main": "lib/duroxide.js",
   "types": "lib/duroxide.d.ts",
@@ -18,7 +18,7 @@
     "artifacts": "napi artifacts",
     "build": "napi build --platform --release",
     "build:debug": "napi build --platform",
-    "test": "node --test __tests__/e2e.test.js __tests__/kv_store.test.js __tests__/races.test.js __tests__/admin_api.test.js __tests__/sessions.test.js __tests__/advanced_features.test.js __tests__/async_blocks.test.js __tests__/typed_apis.test.js __tests__/copilot_chat.test.js __tests__/replay_isolation.test.js",
+    "test": "node --test __tests__/e2e.test.js __tests__/kv_store.test.js __tests__/races.test.js __tests__/admin_api.test.js __tests__/sessions.test.js __tests__/advanced_features.test.js __tests__/async_blocks.test.js __tests__/typed_apis.test.js __tests__/copilot_chat.test.js __tests__/replay_isolation.test.js __tests__/lock_options.test.js",
     "test:races": "node --test __tests__/races.test.js",
     "test:admin": "node --test __tests__/admin_api.test.js",
     "test:scenarios": "node --test __tests__/scenarios/*.test.js",
@@ -27,6 +27,7 @@
     "test:async-blocks": "node --test __tests__/async_blocks.test.js",
     "test:typed": "node --test __tests__/typed_apis.test.js",
     "test:chat": "node --test __tests__/copilot_chat.test.js",
+    "test:lock-options": "node --test __tests__/lock_options.test.js",
     "test:all": "node --test",
     "version": "napi version"
   },
@@ -43,11 +44,11 @@
     "node": ">= 18"
   },
   "optionalDependencies": {
-    "duroxide-darwin-arm64": "0.1.30",
-    "duroxide-darwin-x64": "0.1.30",
-    "duroxide-linux-arm64-gnu": "0.1.30",
-    "duroxide-linux-x64-gnu": "0.1.30",
-    "duroxide-windows-x64": "0.1.30"
+    "duroxide-darwin-arm64": "0.2.0",
+    "duroxide-darwin-x64": "0.2.0",
+    "duroxide-linux-arm64-gnu": "0.2.0",
+    "duroxide-linux-x64-gnu": "0.2.0",
+    "duroxide-windows-x64": "0.2.0"
   },
   "files": [
     "index.js",

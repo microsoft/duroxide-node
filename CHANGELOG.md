@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-04
+
+### Changed
+
+- **Breaking: `ctx.race()` and `ctx.raceTyped()` throw when the winner failed (#9).** Before,
+  a winning activity or sub-orchestration that failed came back like a success:
+  `{ index, value }`, with the error text in `value`. Nothing marked it as an error. Now the
+  `yield` throws the same error as yielding that task on its own: same type, same message.
+  If the orchestration does not catch it, the orchestration fails.
+  - Winners that succeeded, timers, events and dequeued messages return `{ index, value }` as
+    before.
+  - Code that read the error text from `value` must catch the error instead.
+  - A race over a task type that `race()` does not support now throws
+    `unsupported task in select`. Before, it returned that text as the value.
+  - Instances in flight: if a history already holds a race won by a failed task, the replay
+    now throws at that race. If the code then takes a different path than the first run did,
+    the instance fails. Upgrade when no such instance is running.
+
+### Added
+
+- **`workerLockRenewalBufferMs`, `sessionLockTimeoutMs`, `sessionLockRenewalBufferMs` runtime
+  options** — map to `worker_lock_renewal_buffer`, `session_lock_timeout` and
+  `session_lock_renewal_buffer` of the Rust runtime. With these, every lock timeout and
+  renewal buffer of the runtime can be set from JavaScript.
+- `__tests__/lock_options.test.js` — checks that every lock option reaches the runtime, from
+  the renewal intervals the runtime logs.
+
 ## [0.1.30] - 2026-10-03
 
 ### Fixed

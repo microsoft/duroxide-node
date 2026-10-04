@@ -31,6 +31,10 @@ pub struct JsRuntimeOptions {
     /// Worker lock timeout in ms (default: 30000). Controls how often the activity
     /// manager renews locks, which affects cancellation detection speed.
     pub worker_lock_timeout_ms: Option<i64>,
+    /// Worker lock renewal buffer in ms (default: 5000). With a worker lock timeout of
+    /// 15s or more, an activity's lock is renewed this long before it runs out. With a
+    /// shorter timeout the runtime renews at half the timeout and ignores this value.
+    pub worker_lock_renewal_buffer_ms: Option<i64>,
     /// Orchestrator lock timeout in ms (default: 5000). A fetched orchestration item
     /// stays locked for this long; the runtime renews the lock while the turn runs.
     /// It must be longer than the slowest fetch of an orchestration item, or the lock
@@ -54,6 +58,15 @@ pub struct JsRuntimeOptions {
     pub max_sessions_per_runtime: Option<i32>,
     /// Session idle timeout in ms (default: 300000 = 5 minutes)
     pub session_idle_timeout_ms: Option<i64>,
+    /// Session lock timeout in ms (default: 30000). The worker that runs a session's
+    /// activities owns the session for this long, and renews the lock while the session
+    /// is active. If that worker stops, another worker can take the session over once
+    /// the lock runs out.
+    pub session_lock_timeout_ms: Option<i64>,
+    /// Session lock renewal buffer in ms (default: 5000). With a session lock timeout of
+    /// 15s or more, the lock is renewed this long before it runs out. With a shorter
+    /// timeout the runtime renews at half the timeout and ignores this value.
+    pub session_lock_renewal_buffer_ms: Option<i64>,
     /// Stable worker identity for session ownership (e.g., K8s pod name)
     pub worker_node_id: Option<String>,
     /// Worker tag filter mode: "defaultOnly" (default), "any", "none", "tags", or "defaultAnd".
@@ -212,6 +225,9 @@ impl JsRuntime {
             if let Some(ms) = opts.worker_lock_timeout_ms {
                 rt_options.worker_lock_timeout = Duration::from_millis(ms as u64);
             }
+            if let Some(ms) = opts.worker_lock_renewal_buffer_ms {
+                rt_options.worker_lock_renewal_buffer = Duration::from_millis(ms as u64);
+            }
             if let Some(ms) = opts.orchestrator_lock_timeout_ms {
                 rt_options.orchestrator_lock_timeout = Duration::from_millis(ms as u64);
             }
@@ -242,6 +258,12 @@ impl JsRuntime {
             }
             if let Some(ms) = opts.session_idle_timeout_ms {
                 rt_options.session_idle_timeout = Duration::from_millis(ms as u64);
+            }
+            if let Some(ms) = opts.session_lock_timeout_ms {
+                rt_options.session_lock_timeout = Duration::from_millis(ms as u64);
+            }
+            if let Some(ms) = opts.session_lock_renewal_buffer_ms {
+                rt_options.session_lock_renewal_buffer = Duration::from_millis(ms as u64);
             }
             if let Some(ref nid) = opts.worker_node_id {
                 rt_options.worker_node_id = Some(nid.clone());
