@@ -43,6 +43,7 @@ jobs:
       - name: Set up Rust from repository toolchain
         shell: bash
         run: |
+          test -f rust-toolchain.toml
           rustup show active-toolchain
           rustup target add "${{ matrix.target }}"
           rustc --version --verbose
