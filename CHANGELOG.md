@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Use fallible core startup and bounded shutdown while preserving `Promise<void>`.
+  Shutdown uses the supplied grace plus five seconds, with a one-second omitted
+  grace, and idle workers can finish early. Invalid durations reject before
+  changing ownership, even for no-work/repeated calls. Repeated calls retain
+  the original operation and errors instead of succeeding on an empty runtime;
+  no call renews the first deadlines. Pre-core registry/preparation failures
+  become ordinary retained startup errors without changing registration policy.
+- Pre-start shutdown is terminal; start/registration after activation or stop is
+  rejected. Post-stop metrics remain unavailable. Core completion remains retained
+  without keeping Node's event loop alive after proven retirement.
+- Timeouts explicitly require application/supervisor process termination while
+  cleanup remains owned, even if a later observer proves retirement. Finite grace
+  does not guarantee bounded forced cleanup. This narrow adapter does not add
+  .NET's foreign-continuation lifetime barrier or own detached application work.
+  The matching published core dependency is a separate release prerequisite;
+  local development overrides are not distributable.
+
+### Tests
+
+- SQLite-only real-wrapper lifecycle coverage, feature-gated provider/fault controls,
+  ordered race repetitions, isolated held-provider probes, and production-export checks.
+
 ## [0.1.29] - 2026-09-03
 
 ### Changed

@@ -33,3 +33,24 @@ cargo clippy --all-targets
 ```
 
 After Rust source changes (`src/*.rs`), re-run `npx napi build --platform` before running JavaScript tests.
+
+### Lifecycle checks without PostgreSQL
+
+The lifecycle suite requires a freshly built local native module, not an optional
+prebuilt platform package. Its private controls are absent from production builds.
+For example, in PowerShell:
+
+```powershell
+npm run build:debug -- --features test-hooks --js false --dts target\lifecycle-native.d.ts
+$env:DUROXIDE_LIFECYCLE_TEST_HOOKS = '1'
+npm run test:lifecycle
+Remove-Item Env:DUROXIDE_LIFECYCLE_TEST_HOOKS
+npm run build:debug -- --js false --dts target\lifecycle-native.d.ts
+npm run test:lifecycle
+```
+
+Instrumented cases exercise real provider waits and contained owned-task faults.
+The suite checks native import provenance, 100 repetitions per ordered race,
+bounded child-process cleanup, and production export absence. Production mode
+skips only hook-dependent cases. Do not publish instrumented assets or temporary
+local core overrides. A matching published core minimum is required before release.

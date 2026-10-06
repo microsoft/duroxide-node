@@ -377,7 +377,9 @@ runtime.registerOrchestration('Parent', function* (ctx, input) {
 });
 ```
 
-This is the **only fundamental limitation** vs the Rust core — all other features (typed APIs, cancellation propagation, etc.) have full parity. See the `async_blocks.test.js` tests for 12 comprehensive examples of this pattern.
+See `async_blocks.test.js` for examples of this pattern. Lifecycle ownership is
+also a boundary: this adapter does not track arbitrary JavaScript continuations
+or provide the .NET adapter's additional foreign-retirement barrier.
 
 ### select/race Supports 2 Tasks
 
@@ -389,7 +391,31 @@ File-based SQLite can hit "database is locked" errors under concurrent orchestra
 
 ### Runtime Shutdown
 
-`Runtime.shutdown(timeoutMs)` waits for the full timeout duration unconditionally (the Rust runtime doesn't short-circuit when dispatchers drain). Use a small timeout (e.g., 100ms) in tests.
+In the unreleased lifecycle, `Runtime.shutdown(timeoutMs)` remains a
+`Promise<void>` but waits for actual core retirement only within a finite budget:
+supplied grace plus 5000 ms, with 1000 ms omitted grace. Idle execution can finish
+early. Zero requests immediate force; force is not proof of quiescence.
+The first valid stop fixes both deadlines, including for repeated observations.
+
+The adapter stores the prepared core Arc before awaiting fallible startup and
+retains it after startup failure, stop, or timeout. Core task/cleanup ownership
+survives a dropped waiter. Repeated shutdown observes the same operation rather
+than succeeding because an Arc was taken from the wrapper. Valid pre-start stop
+is terminal; registration/start afterward reject, and metrics remain unavailable
+after stop/startup failure. Same-instance lifecycle/registration calls must remain
+serialized.
+
+On proven core retirement, the shutdown Promise resolver runs on the JavaScript
+thread and unreferences retained ThreadsafeFunctions so an otherwise idle process
+can exit. Unref does not abort/free callbacks or discard completion. Incomplete
+cleanup retains ownership and may keep the process alive. Timeout explicitly
+requires application/supervisor process termination, even after late retirement;
+the SDK itself never kills the process.
+
+This is core-owned execution, not complete ownership of every JavaScript task.
+Independently owned Clients, providers, and provider token-refresh work remain
+separate. See the [lifecycle guide](user-guide.md#runtime-lifecycle) for argument
+validation, errors, and release prerequisites.
 
 ### Platform-Specific Binary
 

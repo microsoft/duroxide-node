@@ -6,6 +6,9 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib"]
 
+[features]
+test-hooks = ["duroxide/test-hooks"]
+
 [dependencies]
 duroxide = { version = "0.1.30", features = ["sqlite"] }
 duroxide-pg = "0.1.34"
