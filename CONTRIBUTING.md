@@ -20,6 +20,10 @@ Please do not report security vulnerabilities through public GitHub issues. Foll
 
 ## Development workflow
 
+Install Rust using [rustup](https://rustup.rs). The root `rust-toolchain.toml` selects
+the compiler for local development and CI. Run `rustup show active-toolchain` from
+the repository to install it, and `rustup component add clippy` before running Clippy.
+
 Before opening a pull request, run the checks relevant to your change:
 
 ```bash
