@@ -49,6 +49,66 @@ async function main() {
 main();
 ```
 
+## Runtime Lifecycle
+
+This section requires the **unreleased** adapter and matching core lifecycle;
+published packages and temporary local core overrides are not release evidence.
+
+Register handlers before the first `await runtime.start()`. Startup returns after
+activation, not after shutdown, and failures reject the Promise.
+Registry/preparation failures, including invalid or descending versions, become
+ordinary `lifecycle_start_failed` errors retained by subsequent shutdown calls.
+Version ordering and duplicate-registration policy are unchanged. Adapter error
+messages do not include panic payloads; this does not suppress Rust's separate
+process-wide panic-hook output.
+
+`await runtime.shutdown()` uses one second of grace plus five seconds of cleanup
+headroom. `shutdown(0)` requests immediate force, still with a five-second total.
+The first stop fixes the deadlines; repeating it never grants a new budget.
+Success remains `undefined`; errors carry `lifecycle_start_failed`,
+`lifecycle_shutdown_timed_out`, or `lifecycle_shutdown_failed` categories.
+Invalid non-finite, fractional, negative, unsafe-integer, or unsupported native
+durations reject without consuming registrations or accepting stop.
+Strings and `null` also reject; `undefined` means the omitted grace. Native
+validation uses signed millisecond extraction and checked unsigned-nanosecond
+deadlines: the interval ceiling for grace is
+`floor((2^64 - 1) / 1_000_000) - 5000` milliseconds, also subject to the platform's
+monotonic clock range. Validation still runs on unused or repeated calls.
+
+Stopping before start is terminal. Do not overlap lifecycle or registration calls
+on the same instance. Metrics return `null` after stop. Repeated shutdown can
+observe real late completion, but a timeout permanently rules out reuse and still
+requires application/supervisor process termination. Cleanup remains owned; the
+SDK never exits the process itself. This contract covers core-owned execution,
+not arbitrary unregistered JavaScript continuations or the .NET adapter's
+additional foreign-continuation barrier. Independent provider-owned background
+work has a separate lifetime. Dropping/ignoring the returned Promise does not
+cancel the core's retained cleanup.
+
+This complete example has no admitted work and can finish before grace:
+
+```javascript
+const { SqliteProvider, Runtime } = require('duroxide');
+
+async function main() {
+  const provider = await SqliteProvider.inMemory();
+  const runtime = new Runtime(provider);
+  await runtime.start();
+  await runtime.shutdown();      // 1000 ms grace, 6000 ms total; can finish early
+  await runtime.shutdown(0);     // Observes the same actual completion, not a new stop
+  console.log(runtime.metricsSnapshot()); // null: stopped worker, not active metrics
+}
+main().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});
+```
+
+For incomplete stop, setting an exit code alone may not terminate retained
+noncooperative work. Arrange termination in the application's supervisor policy;
+do not treat a caught error or successful late observation as permission to
+reuse the runtime. A finite grace cannot promise bounded forced cleanup.
+
 ## Orchestration Patterns
 
 ### Sequential Steps
