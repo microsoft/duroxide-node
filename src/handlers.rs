@@ -38,9 +38,17 @@ impl Drop for ActivityCtxGuard {
 }
 
 /// Called from JS to check if an activity has been cancelled.
+///
+/// A missing entry also means cancelled. The entry is removed when the Rust side of the
+/// invocation ends. That happens while the JS function is still running when the runtime
+/// gives up on a cancelled activity after the grace period. The answer must not go back
+/// to `false` at that point.
 pub fn activity_is_cancelled(token: &str) -> bool {
     let map = ACTIVITY_CTXS.lock();
-    map.get(token).is_some_and(|ctx| ctx.is_cancelled())
+    match map.get(token) {
+        Some(ctx) => ctx.is_cancelled(),
+        None => true,
+    }
 }
 
 /// Called from JS to get a Client from the ActivityContext.
@@ -68,24 +76,32 @@ pub fn activity_trace(token: &str, level: &str, message: &str) {
     }
 }
 
-// Global map for orchestration contexts (keyed by instance_id).
+// Global map for orchestration contexts, keyed by a unique token per invocation.
+// One invocation = one replay of one instance. Two replays of the same instance can be
+// alive in one process (a replay that lost its lock keeps running), so the key must not
+// be the instance id.
 // Inserted before calling JS, removed when the handler future is dropped.
 static ORCHESTRATION_CTXS: std::sync::LazyLock<Mutex<HashMap<String, OrchestrationContext>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
+static ORCHESTRATION_TOKEN_COUNTER: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+fn new_orchestration_token() -> String {
+    let id = ORCHESTRATION_TOKEN_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    format!("orch-{id}")
+}
+
 struct OrchestrationInvokeGuard {
-    instance_id: String,
+    token: String,
     gen_id: Option<u64>,
     dispose_fn: ThreadsafeFunction<String, ErrorStrategy::Fatal>,
 }
 
 impl OrchestrationInvokeGuard {
-    fn new(
-        instance_id: String,
-        dispose_fn: ThreadsafeFunction<String, ErrorStrategy::Fatal>,
-    ) -> Self {
+    fn new(token: String, dispose_fn: ThreadsafeFunction<String, ErrorStrategy::Fatal>) -> Self {
         Self {
-            instance_id,
+            token,
             gen_id: None,
             dispose_fn,
         }
@@ -98,7 +114,7 @@ impl OrchestrationInvokeGuard {
 
 impl Drop for OrchestrationInvokeGuard {
     fn drop(&mut self) {
-        ORCHESTRATION_CTXS.lock().remove(&self.instance_id);
+        ORCHESTRATION_CTXS.lock().remove(&self.token);
 
         let Some(gen_id) = self.gen_id.take() else {
             return;
@@ -119,93 +135,93 @@ impl Drop for OrchestrationInvokeGuard {
 
 /// Called from JS to trace through the Rust OrchestrationContext.
 /// Delegates to ctx.trace() which has the correct is_replaying guard.
-pub fn orchestration_trace(instance_id: &str, level: &str, message: &str) {
+pub fn orchestration_trace(token: &str, level: &str, message: &str) {
     let map = ORCHESTRATION_CTXS.lock();
-    if let Some(ctx) = map.get(instance_id) {
+    if let Some(ctx) = map.get(token) {
         ctx.trace(level, message);
     }
 }
 
 /// Called from JS to set custom status on the OrchestrationContext.
-pub fn orchestration_set_custom_status(instance_id: &str, status: &str) {
+pub fn orchestration_set_custom_status(token: &str, status: &str) {
     let map = ORCHESTRATION_CTXS.lock();
-    if let Some(ctx) = map.get(instance_id) {
+    if let Some(ctx) = map.get(token) {
         ctx.set_custom_status(status);
     }
 }
 
 /// Called from JS to reset (clear) custom status on the OrchestrationContext.
-pub fn orchestration_reset_custom_status(instance_id: &str) {
+pub fn orchestration_reset_custom_status(token: &str) {
     let map = ORCHESTRATION_CTXS.lock();
-    if let Some(ctx) = map.get(instance_id) {
+    if let Some(ctx) = map.get(token) {
         ctx.reset_custom_status();
     }
 }
 
 /// Called from JS to read the current custom status from the OrchestrationContext.
-pub fn orchestration_get_custom_status(instance_id: &str) -> Option<String> {
+pub fn orchestration_get_custom_status(token: &str) -> Option<String> {
     let map = ORCHESTRATION_CTXS.lock();
-    map.get(instance_id).and_then(|ctx| ctx.get_custom_status())
+    map.get(token).and_then(|ctx| ctx.get_custom_status())
 }
 
 /// Called from JS to set a KV value on the OrchestrationContext.
-pub fn orchestration_set_value(instance_id: &str, key: &str, value: &str) {
+pub fn orchestration_set_value(token: &str, key: &str, value: &str) {
     let map = ORCHESTRATION_CTXS.lock();
-    if let Some(ctx) = map.get(instance_id) {
+    if let Some(ctx) = map.get(token) {
         ctx.set_kv_value(key, value);
     }
 }
 
 /// Called from JS to read the current KV value from the OrchestrationContext.
-pub fn orchestration_get_value(instance_id: &str, key: &str) -> Option<String> {
+pub fn orchestration_get_value(token: &str, key: &str) -> Option<String> {
     let map = ORCHESTRATION_CTXS.lock();
-    map.get(instance_id).and_then(|ctx| ctx.get_kv_value(key))
+    map.get(token).and_then(|ctx| ctx.get_kv_value(key))
 }
 
 /// Called from JS to clear a KV value on the OrchestrationContext.
-pub fn orchestration_clear_value(instance_id: &str, key: &str) {
+pub fn orchestration_clear_value(token: &str, key: &str) {
     let map = ORCHESTRATION_CTXS.lock();
-    if let Some(ctx) = map.get(instance_id) {
+    if let Some(ctx) = map.get(token) {
         ctx.clear_kv_value(key);
     }
 }
 
 /// Called from JS to clear all KV values on the OrchestrationContext.
-pub fn orchestration_clear_all_values(instance_id: &str) {
+pub fn orchestration_clear_all_values(token: &str) {
     let map = ORCHESTRATION_CTXS.lock();
-    if let Some(ctx) = map.get(instance_id) {
+    if let Some(ctx) = map.get(token) {
         ctx.clear_all_kv_values();
     }
 }
 
 /// Called from JS to read all KV values from the OrchestrationContext.
-pub fn orchestration_get_kv_all_values(instance_id: &str) -> HashMap<String, String> {
+pub fn orchestration_get_kv_all_values(token: &str) -> HashMap<String, String> {
     let map = ORCHESTRATION_CTXS.lock();
-    map.get(instance_id)
+    map.get(token)
         .map(|ctx| ctx.get_kv_all_values())
         .unwrap_or_default()
 }
 
 /// Called from JS to read all KV keys from the OrchestrationContext.
-pub fn orchestration_get_kv_all_keys(instance_id: &str) -> Vec<String> {
+pub fn orchestration_get_kv_all_keys(token: &str) -> Vec<String> {
     let map = ORCHESTRATION_CTXS.lock();
-    map.get(instance_id)
+    map.get(token)
         .map(|ctx| ctx.get_kv_all_keys())
         .unwrap_or_default()
 }
 
 /// Called from JS to read the current KV length from the OrchestrationContext.
-pub fn orchestration_get_kv_length(instance_id: &str) -> u32 {
+pub fn orchestration_get_kv_length(token: &str) -> u32 {
     let map = ORCHESTRATION_CTXS.lock();
-    map.get(instance_id)
+    map.get(token)
         .map(|ctx| ctx.get_kv_length() as u32)
         .unwrap_or(0)
 }
 
 /// Called from JS to prune KV values older than the supplied cutoff.
-pub fn orchestration_prune_kv_values(instance_id: &str, cutoff_ms: u64) -> u32 {
+pub fn orchestration_prune_kv_values(token: &str, cutoff_ms: u64) -> u32 {
     let map = ORCHESTRATION_CTXS.lock();
-    map.get(instance_id)
+    map.get(token)
         .map(|ctx| ctx.prune_kv_values_updated_before(cutoff_ms) as u32)
         .unwrap_or(0)
 }
@@ -534,22 +550,8 @@ impl JsOrchestrationHandler {
                 let f2 = make_select_future(ctx, t2);
 
                 match ctx.select2(f1, f2).await {
-                    duroxide::Either2::First(val) => {
-                        // Parse val as JSON so it's embedded as a structured value,
-                        // not double-serialized as a JSON string.
-                        let parsed = serde_json::from_str::<serde_json::Value>(&val)
-                            .unwrap_or(serde_json::Value::String(val));
-                        TaskResult::Ok(
-                            serde_json::json!({ "index": 0, "value": parsed }).to_string(),
-                        )
-                    }
-                    duroxide::Either2::Second(val) => {
-                        let parsed = serde_json::from_str::<serde_json::Value>(&val)
-                            .unwrap_or(serde_json::Value::String(val));
-                        TaskResult::Ok(
-                            serde_json::json!({ "index": 1, "value": parsed }).to_string(),
-                        )
-                    }
+                    duroxide::Either2::First(result) => select_result(0, result),
+                    duroxide::Either2::Second(result) => select_result(1, result),
                 }
             }
         }
@@ -561,12 +563,28 @@ enum TaskResult {
     Err(String),
 }
 
-/// Convert a ScheduledTask into a type-erased future returning a raw string for use in select.
-/// Activity/sub-orch errors are flattened (Ok and Err both become the raw string value).
+/// Turn the winner of a select into the value the orchestration gets.
+/// A winner that succeeded becomes `{ index, value }`. A winner that failed becomes
+/// the same error the orchestration gets when it yields that task on its own.
+fn select_result(index: u32, result: Result<String, String>) -> TaskResult {
+    match result {
+        Ok(val) => {
+            // Parse val as JSON so it's embedded as a structured value,
+            // not double-serialized as a JSON string.
+            let parsed = serde_json::from_str::<serde_json::Value>(&val)
+                .unwrap_or(serde_json::Value::String(val));
+            TaskResult::Ok(serde_json::json!({ "index": index, "value": parsed }).to_string())
+        }
+        Err(err) => TaskResult::Err(err),
+    }
+}
+
+/// Convert a ScheduledTask into a type-erased future for use in select.
+/// The output keeps success and failure apart, so a failed winner can be raised as an error.
 fn make_select_future(
     ctx: &OrchestrationContext,
     task: ScheduledTask,
-) -> std::pin::Pin<Box<dyn std::future::Future<Output = String> + Send + '_>> {
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, String>> + Send + '_>> {
     match task {
         ScheduledTask::Activity { name, input, session_id, tag } => {
             Box::pin(async move {
@@ -580,83 +598,63 @@ fn make_select_future(
                 } else {
                     future
                 };
-                match future.await {
-                    Ok(v) => v,
-                    Err(e) => e,
-                }
+                future.await
             })
         }
         ScheduledTask::ActivityWithRetry { name, input, retry, session_id } => {
             Box::pin(async move {
                 let policy = convert_retry_policy(&retry);
-                let result = if let Some(sid) = session_id {
+                if let Some(sid) = session_id {
                     ctx.schedule_activity_with_retry_on_session(&name, input, policy, sid).await
                 } else {
                     ctx.schedule_activity_with_retry(&name, input, policy).await
-                };
-                match result {
-                    Ok(v) => v,
-                    Err(e) => e,
                 }
             })
         }
         ScheduledTask::Timer { delay_ms } => {
             Box::pin(async move {
                 ctx.schedule_timer(Duration::from_millis(delay_ms)).await;
-                "null".to_string()
+                Ok("null".to_string())
             })
         }
         ScheduledTask::WaitEvent { name } => {
             Box::pin(async move {
-                ctx.schedule_wait(&name).await
+                Ok(ctx.schedule_wait(&name).await)
             })
         }
         ScheduledTask::DequeueEvent { queue_name } => {
             Box::pin(async move {
-                ctx.dequeue_event(&queue_name).await
+                Ok(ctx.dequeue_event(&queue_name).await)
             })
         }
         ScheduledTask::GetValueFromInstance { instance_id, key } => {
             Box::pin(async move {
-                match ctx.get_kv_value_from_instance(instance_id, key).await {
-                    Ok(value) => serde_json::to_string(&value).unwrap_or_else(|_| "null".to_string()),
-                    Err(err) => err,
-                }
+                ctx.get_kv_value_from_instance(instance_id, key)
+                    .await
+                    .map(|value| serde_json::to_string(&value).unwrap_or_else(|_| "null".to_string()))
             })
         }
         ScheduledTask::SubOrchestration { name, input } => {
             Box::pin(async move {
-                match ctx.schedule_sub_orchestration(&name, input).await {
-                    Ok(v) => v,
-                    Err(e) => e,
-                }
+                ctx.schedule_sub_orchestration(&name, input).await
             })
         }
         ScheduledTask::SubOrchestrationWithId { name, instance_id, input } => {
             Box::pin(async move {
-                match ctx.schedule_sub_orchestration_with_id(&name, instance_id, input).await {
-                    Ok(v) => v,
-                    Err(e) => e,
-                }
+                ctx.schedule_sub_orchestration_with_id(&name, instance_id, input).await
             })
         }
         ScheduledTask::SubOrchestrationVersioned { name, version, input } => {
             Box::pin(async move {
-                match ctx.schedule_sub_orchestration_versioned(&name, version, input).await {
-                    Ok(v) => v,
-                    Err(e) => e,
-                }
+                ctx.schedule_sub_orchestration_versioned(&name, version, input).await
             })
         }
         ScheduledTask::SubOrchestrationVersionedWithId { name, version, instance_id, input } => {
             Box::pin(async move {
-                match ctx.schedule_sub_orchestration_versioned_with_id(&name, version, instance_id, input).await {
-                    Ok(v) => v,
-                    Err(e) => e,
-                }
+                ctx.schedule_sub_orchestration_versioned_with_id(&name, version, instance_id, input).await
             })
         }
-        _ => Box::pin(async { "unsupported task in select".to_string() }),
+        _ => Box::pin(async { Err("unsupported task in select".to_string()) }),
     }
 }
 
@@ -778,17 +776,18 @@ fn make_join_future(
 #[async_trait::async_trait]
 impl duroxide::runtime::OrchestrationHandler for JsOrchestrationHandler {
     async fn invoke(&self, ctx: OrchestrationContext, input: String) -> Result<String, String> {
-        let instance_id = ctx.instance_id().to_string();
-
-        // Store ctx in global map so JS trace calls can delegate to it
-        ORCHESTRATION_CTXS.lock().insert(instance_id.clone(), ctx.clone());
-        let mut guard = OrchestrationInvokeGuard::new(instance_id.clone(), self.dispose_fn.clone());
+        // Store ctx in global map under a token that only this invocation knows,
+        // so JS calls made by this replay reach this replay's context and no other.
+        let token = new_orchestration_token();
+        ORCHESTRATION_CTXS.lock().insert(token.clone(), ctx.clone());
+        let mut guard = OrchestrationInvokeGuard::new(token.clone(), self.dispose_fn.clone());
 
         let ctx_info = serde_json::json!({
             "instanceId": ctx.instance_id(),
             "executionId": ctx.execution_id(),
             "orchestrationName": ctx.orchestration_name(),
             "orchestrationVersion": ctx.orchestration_version(),
+            "_ctxToken": token,
         });
 
         let payload = serde_json::json!({

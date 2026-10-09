@@ -107,7 +107,7 @@ function* (ctx, input) {
 }
 ```
 
-Tracing works by looking up the Rust `OrchestrationContext` from a global map (keyed by instance ID) and calling `ctx.trace()` synchronously. The Rust side handles the `is_replaying` guard — traces are suppressed during replay automatically.
+Tracing works by looking up the Rust `OrchestrationContext` from a global map (keyed by a per-invocation token) and calling `ctx.trace()` synchronously. The Rust side handles the `is_replaying` guard — traces are suppressed during replay automatically.
 
 ## Orchestration Handler Loop
 
@@ -118,7 +118,7 @@ The core of the interop is in `src/handlers.rs`. Here's the sequence for a singl
                     ──────────────────                    ────────────────────
 1. invoke(ctx, input)
    │
-   ├─ Store ctx in ORCHESTRATION_CTXS map
+   ├─ Store ctx in ORCHESTRATION_CTXS map under a new token ("orch-{n}")
    │
    ├─ call_create_blocking(payload) ──────────────────► createGenerator(payload)
    │   (block_in_place + block_on)                       │
@@ -188,9 +188,9 @@ Both orchestration and activity tracing delegate to the Rust context objects, wh
 ```
 JS: ctx.traceInfo("message")
   │
-  └─► orchestrationTraceLog(instanceId, "info", "message")  [napi function]
+  └─► orchestrationTraceLog(ctxToken, "info", "message")  [napi function]
         │
-        └─► ORCHESTRATION_CTXS.get(instanceId).trace("INFO", "message")
+        └─► ORCHESTRATION_CTXS.get(ctxToken).trace("INFO", "message")
               │
               ├─ if is_replaying → suppressed (no output)
               └─ if live → tracing::info!(target: "duroxide::orchestration",
@@ -250,7 +250,7 @@ not ship `[patch.crates-io]` sections or inline `path =` overrides:
 
 ```toml
 duroxide = { version = "0.1.30", features = ["sqlite"] }
-duroxide-pg = "0.1.34"
+duroxide-pg = "0.1.35"
 ```
 
 Temporary local path overrides may be useful during cross-repository
@@ -264,9 +264,9 @@ Custom status is a fire-and-forget mechanism — orchestrations set progress str
 ```
 Orchestration: ctx.setCustomStatus(str)
   │
-  └─► orchestrationSetCustomStatus(instanceId, str)  [napi function]
+  └─► orchestrationSetCustomStatus(ctxToken, str)  [napi function]
         │
-        └─► ORCHESTRATION_CTXS.get(instanceId).set_custom_status(str)
+        └─► ORCHESTRATION_CTXS.get(ctxToken).set_custom_status(str)
               │
               └─► Writes to provider (customStatusVersion increments monotonically)
 

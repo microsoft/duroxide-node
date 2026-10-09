@@ -155,6 +155,47 @@ test('SQLite activity and orchestration run through the unchanged public API', a
   }
 });
 
+for (const typed of [false, true]) {
+  test(`SQLite ${typed ? 'typed' : 'raw'} races preserve failures, values, and shutdown`, async () => {
+    const { runtime, provider, hooks } = await fixture();
+    const client = new Client(provider);
+    runtime.registerActivity('LifecycleRaceFail', async () => { throw new Error('race-failure'); });
+    runtime.registerActivity('LifecycleRaceValue', async () => ({ err: 'data', ok: true }));
+    runtime.registerOrchestration('LifecycleRaceFlow', function* (context) {
+      const schedule = (typed ? context.scheduleActivityTyped : context.scheduleActivity).bind(context);
+      const race = (typed ? context.raceTyped : context.race).bind(context);
+      let direct;
+      try {
+        yield schedule('LifecycleRaceFail', null);
+      } catch (error) {
+        direct = { type: error.constructor.name, message: error.message };
+      }
+      let raced;
+      try {
+        yield race(context.scheduleTimer(60_000), schedule('LifecycleRaceFail', null));
+      } catch (error) {
+        raced = { type: error.constructor.name, message: error.message };
+      }
+      const winner = yield race(schedule('LifecycleRaceValue', null), context.scheduleTimer(60_000));
+      return { direct, raced, winner };
+    });
+    await runtime.start();
+    try {
+      await client.startOrchestration('lifecycle-race', 'LifecycleRaceFlow', null);
+      const result = await client.waitForOrchestration('lifecycle-race', 5000);
+      assert.equal(result.status, 'Completed');
+      assert.equal(result.output.direct.type, 'Error');
+      assert.match(result.output.direct.message, /race-failure/);
+      assert.deepEqual(result.output.raced, result.output.direct);
+      assert.deepEqual(result.output.winner, { index: 0, value: { err: 'data', ok: true } });
+    } finally {
+      await runtime.shutdown(100);
+    }
+    assert.equal(await runtime.shutdown(0), undefined);
+    if (hooks) retired(hooks);
+  });
+}
+
 test('partial-startup failure retains descendants until actual rollback', { skip: !instrumented }, async () => {
   const { runtime, hooks } = await fixture();
   hooks.hold('partial-startup');

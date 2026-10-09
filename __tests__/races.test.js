@@ -208,6 +208,73 @@ describe('race() with mixed task types', () => {
     }
   });
 
+  it('isCancelled() stays true after the cancellation grace period', async () => {
+    const instanceId = uid('race-cancel-sticky');
+    const client = new Client(provider);
+    const runtime = new Runtime(provider, {
+      dispatcherPollIntervalMs: 50,
+      workerLockTimeoutMs: 2000,
+    });
+    // After it cancels an activity the runtime waits 10 s (the cancellation grace period),
+    // then gives up on the invocation. The JS function keeps running after that.
+    const GRACE_MS = 10000;
+    const AFTER_GRACE_MS = 3000;
+    const samples = [];
+    let firstCancelledAt = null;
+    let activityDone = false;
+
+    runtime.registerActivity('Stubborn', async (ctx) => {
+      const start = Date.now();
+      for (;;) {
+        const cancelled = ctx.isCancelled();
+        const now = Date.now();
+        if (cancelled && firstCancelledAt === null) firstCancelledAt = now;
+        samples.push({ at: now, cancelled });
+        if (firstCancelledAt !== null && now - firstCancelledAt > GRACE_MS + AFTER_GRACE_MS) break;
+        if (now - start > 40000) break;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      activityDone = true;
+      return 'late';
+    });
+    runtime.registerOrchestration('RaceTimerStubborn', function* (ctx) {
+      const winner = yield ctx.race(
+        ctx.scheduleTimer(50),
+        ctx.scheduleActivity('Stubborn', 'x'),
+      );
+      return winner;
+    });
+
+    await runtime.start();
+    try {
+      await client.startOrchestration(instanceId, 'RaceTimerStubborn', null);
+      const result = await client.waitForOrchestration(instanceId, 15000);
+      assert.strictEqual(result.status, 'Completed');
+      assert.strictEqual(result.output.index, 0);
+
+      for (let i = 0; i < 450 && !activityDone; i++) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      assert.ok(activityDone, 'activity should have finished its loop');
+      assert.notStrictEqual(firstCancelledAt, null, 'activity should have seen isCancelled()');
+
+      const sinceCancel = samples.filter((s) => s.at >= firstCancelledAt);
+      const last = sinceCancel[sinceCancel.length - 1];
+      assert.ok(
+        last.at - firstCancelledAt > GRACE_MS,
+        'the activity should have kept checking after the grace period',
+      );
+      const wentBack = sinceCancel.find((s) => !s.cancelled);
+      assert.strictEqual(
+        wentBack,
+        undefined,
+        wentBack && `isCancelled() went back to false ${wentBack.at - firstCancelledAt} ms after it was first true`,
+      );
+    } finally {
+      await runtime.shutdown(2000);
+    }
+  });
+
   it('races waitEvent vs timer (event wins)', async () => {
     const instanceId = uid('race-wait');
     const client = new Client(provider);
@@ -282,6 +349,166 @@ describe('race() with mixed task types', () => {
     });
     assert.strictEqual(result.status, 'Completed');
     assert.strictEqual(result.output.index, 0);
+  });
+});
+
+// ─── ctx.race() when the winner failed ──────────────────────────
+//
+// A winner that failed makes the yield throw. The error is the one the orchestration
+// gets when it yields that task on its own: same type, same message.
+
+describe('race() with a failed winner', () => {
+  it('throws the error of a failed activity, and the orchestration can go on', async () => {
+    const result = await runOrchestration('RaceFailedActivity', null, (rt) => {
+      rt.registerActivity('Boom', async (ctx, input) => {
+        throw new Error(`boom-${input}`);
+      });
+      rt.registerActivity('Fast', async (ctx, input) => `fast-${input}`);
+      rt.registerOrchestration('RaceFailedActivity', function* (ctx) {
+        let direct;
+        try {
+          yield ctx.scheduleActivity('Boom', 'x');
+        } catch (e) {
+          direct = { message: e.message, isError: e instanceof Error };
+        }
+        let raced;
+        try {
+          const winner = yield ctx.race(
+            ctx.scheduleActivity('Boom', 'x'),
+            ctx.scheduleTimer(60000),
+          );
+          raced = { returned: winner };
+        } catch (e) {
+          raced = { message: e.message, isError: e instanceof Error };
+        }
+        // The orchestration catches the error and schedules more work.
+        const after = yield ctx.scheduleActivity('Fast', 'after');
+        return { direct, raced, after };
+      });
+    });
+    assert.strictEqual(result.status, 'Completed');
+    const { direct, raced, after } = result.output;
+    assert.ok(direct && direct.isError, 'the direct yield should throw');
+    assert.match(direct.message, /boom-x/);
+    assert.strictEqual(raced.returned, undefined, 'the race should throw, not return');
+    assert.strictEqual(raced.isError, true);
+    assert.strictEqual(raced.message, direct.message);
+    assert.strictEqual(after, 'fast-after');
+  });
+
+  it('throws when the failed winner is the second task', async () => {
+    const result = await runOrchestration('RaceFailedSecond', null, (rt) => {
+      rt.registerActivity('Boom', async () => {
+        throw new Error('second-boom');
+      });
+      rt.registerOrchestration('RaceFailedSecond', function* (ctx) {
+        try {
+          return yield ctx.race(
+            ctx.scheduleTimer(60000),
+            ctx.scheduleActivity('Boom', null),
+          );
+        } catch (e) {
+          return { caught: e.message };
+        }
+      });
+    });
+    assert.strictEqual(result.status, 'Completed');
+    assert.match(result.output.caught, /second-boom/);
+  });
+
+  it('throws the error of a failed sub-orchestration', async () => {
+    const result = await runOrchestration('RaceFailedChildParent', null, (rt) => {
+      rt.registerOrchestration('RaceFailedChild', function* () {
+        throw new Error('child-boom');
+      });
+      rt.registerOrchestration('RaceFailedChildParent', function* (ctx) {
+        let direct;
+        try {
+          yield ctx.scheduleSubOrchestration('RaceFailedChild', null);
+        } catch (e) {
+          direct = e.message;
+        }
+        let raced;
+        try {
+          raced = { returned: yield ctx.race(
+            ctx.scheduleSubOrchestration('RaceFailedChild', null),
+            ctx.scheduleTimer(60000),
+          ) };
+        } catch (e) {
+          raced = { message: e.message };
+        }
+        return { direct, raced };
+      });
+    });
+    assert.strictEqual(result.status, 'Completed');
+    assert.match(result.output.direct, /child-boom/);
+    assert.strictEqual(result.output.raced.returned, undefined, 'the race should throw, not return');
+    assert.strictEqual(result.output.raced.message, result.output.direct);
+  });
+
+  it('an uncaught failed winner fails the orchestration', async () => {
+    const result = await runOrchestration('RaceFailedUncaught', null, (rt) => {
+      rt.registerActivity('Boom', async () => {
+        throw new Error('uncaught-boom');
+      });
+      rt.registerOrchestration('RaceFailedUncaught', function* (ctx) {
+        return yield ctx.race(
+          ctx.scheduleActivity('Boom', null),
+          ctx.scheduleTimer(60000),
+        );
+      });
+    });
+    assert.strictEqual(result.status, 'Failed');
+    assert.match(result.error, /uncaught-boom/);
+  });
+
+  it('a timer that wins over a failing activity returns as before', async () => {
+    const result = await runOrchestration('RaceTimerBeatsBoom', null, (rt) => {
+      rt.registerActivity('SlowBoom', async (ctx) => {
+        for (let i = 0; i < 40 && !ctx.isCancelled(); i++) {
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        throw new Error('too-late');
+      });
+      rt.registerOrchestration('RaceTimerBeatsBoom', function* (ctx) {
+        return yield ctx.race(
+          ctx.scheduleTimer(50),
+          ctx.scheduleActivity('SlowBoom', null),
+        );
+      });
+    });
+    assert.strictEqual(result.status, 'Completed');
+    assert.strictEqual(result.output.index, 0);
+    assert.strictEqual(result.output.value, null);
+  });
+
+  it('raceTyped throws the same error, and still parses a successful winner', async () => {
+    const result = await runOrchestration('RaceTypedFailed', null, (rt) => {
+      rt.registerActivity('Boom', async () => {
+        throw new Error('typed-boom');
+      });
+      rt.registerActivity('Obj', async () => ({ a: 1 }));
+      rt.registerOrchestration('RaceTypedFailed', function* (ctx) {
+        let caught;
+        try {
+          yield ctx.raceTyped(
+            ctx.scheduleActivityTyped('Boom', null),
+            ctx.scheduleTimer(60000),
+          );
+        } catch (e) {
+          caught = { message: e.message, isError: e instanceof Error };
+        }
+        const winner = yield ctx.raceTyped(
+          ctx.scheduleActivityTyped('Obj', null),
+          ctx.scheduleTimer(60000),
+        );
+        return { caught, winner };
+      });
+    });
+    assert.strictEqual(result.status, 'Completed');
+    assert.strictEqual(result.output.caught.isError, true);
+    assert.match(result.output.caught.message, /typed-boom/);
+    assert.deepStrictEqual(result.output.winner, { index: 0, value: { a: 1 } });
   });
 });
 
