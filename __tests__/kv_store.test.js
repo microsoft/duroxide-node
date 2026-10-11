@@ -94,6 +94,36 @@ describe('kv store', () => {
     });
   });
 
+  it('kv keys are listed and pruned in key order, and the prune replays', async () => {
+    // duroxide 0.1.31 lists and prunes keys in key order (microsoft/duroxide#57). Before, both
+    // used hash order, which differs between replays, so the replay of a prune that cleared
+    // several keys failed with "nondeterministic: kv clear mismatch".
+    const keys = ['k7', 'k3', 'k5', 'k1', 'k8', 'k2', 'k6', 'k4'];
+    await withRuntime((runtime) => {
+      runtime.registerOrchestration('KvKeyOrder', function* (ctx) {
+        for (const key of keys) ctx.setValue(key, key);
+        const listed = ctx.getKvAllKeys();
+        // A cutoff after every write prunes all eight keys.
+        const pruned = ctx.pruneKvValuesUpdatedBefore(Number.MAX_SAFE_INTEGER);
+        // The next turn replays the writes and the prune, and must clear the keys in the
+        // order this turn recorded.
+        yield ctx.scheduleTimer(5);
+        return { listed, pruned, after: ctx.getKvAllKeys() };
+      });
+    }, async (client) => {
+      const instanceId = uid('kv-key-order');
+      await client.startOrchestration(instanceId, 'KvKeyOrder', null);
+
+      const status = await client.waitForOrchestration(instanceId, 5000);
+      assert.strictEqual(status.status, 'Completed', `orchestration failed: ${status.error}`);
+      assert.deepStrictEqual(status.output, {
+        listed: ['k1', 'k2', 'k3', 'k4', 'k5', 'k6', 'k7', 'k8'],
+        pruned: 8,
+        after: [],
+      });
+    });
+  });
+
   it('kv bulk snapshot and prune', async () => {
     await withRuntime((runtime) => {
       runtime.registerOrchestration('KvBulk', function* (ctx, input) {

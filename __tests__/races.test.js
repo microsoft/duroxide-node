@@ -596,3 +596,106 @@ describe('type preservation', () => {
     assert.strictEqual(typeof r3.output.value, 'object');
   });
 });
+
+// ─── dequeueEvent raced against a timer ──────────────────────────
+//
+// A drain loop races a queue read against a short timer. When the timer wins, the read is
+// dropped. Since duroxide 0.1.31 a dropped read is cancelled at the drop: it never takes a
+// message, replay picks the same winners as the live run, and continueAsNew carries exactly
+// the messages that no read returned. Before, a timer win followed by a message in the same
+// batch could fail the instance with "nondeterministic: history schedule but no emitted
+// action", skip a message, or lose one at continueAsNew.
+
+function decodeMessage(value) {
+  return typeof value === 'string' ? JSON.parse(value) : value;
+}
+
+// Numbered messages with deterministic 0-30 ms gaps, a 100 ms pause after every 50th
+// message so the timer also wins, and a final { done: true }.
+async function produceNumbered(client, instanceId, count) {
+  for (let i = 0; i < count; i++) {
+    await client.enqueueEvent(instanceId, 'q', { i });
+    await new Promise((r) => setTimeout(r, i % 50 === 49 ? 100 : (i * 17 + 7) % 31));
+  }
+  await client.enqueueEvent(instanceId, 'q', { done: true });
+}
+
+describe('dequeueEvent raced against a timer', () => {
+  it('a read that loses to the timer takes no message (FIFO, exactly once)', async () => {
+    const count = 300;
+    const instanceId = uid('race-drain-loop');
+    const client = new Client(provider);
+    const runtime = new Runtime(provider, {
+      orchestrationConcurrency: 2,
+      workerConcurrency: 2,
+      dispatcherPollIntervalMs: 10,
+    });
+
+    runtime.registerOrchestration('RaceDrainLoop', function* (ctx) {
+      const seq = [];
+      let timers = 0;
+      while (true) {
+        const winner = yield ctx.race(ctx.dequeueEvent('q'), ctx.scheduleTimer(20));
+        if (winner.index === 1) {
+          timers++;
+          continue;
+        }
+        const message = decodeMessage(winner.value);
+        if (message.done) return { seq, timers };
+        seq.push(message.i);
+      }
+    });
+
+    await runtime.start();
+    try {
+      await client.startOrchestration(instanceId, 'RaceDrainLoop', null);
+      await produceNumbered(client, instanceId, count);
+      const result = await client.waitForOrchestration(instanceId, 60000);
+
+      assert.strictEqual(result.status, 'Completed', `orchestration failed: ${result.error}`);
+      assert.deepStrictEqual(result.output.seq, Array.from({ length: count }, (_, i) => i));
+      assert.ok(result.output.timers > 0, 'the timer never won, so no read was dropped');
+    } finally {
+      await runtime.shutdown(100);
+    }
+  });
+
+  it('continueAsNew after a lost read carries every unread message', async () => {
+    const count = 200;
+    const instanceId = uid('race-drain-can');
+    const client = new Client(provider);
+    const runtime = new Runtime(provider, {
+      orchestrationConcurrency: 2,
+      workerConcurrency: 2,
+      dispatcherPollIntervalMs: 10,
+    });
+
+    runtime.registerOrchestration('RaceDrainCan', function* (ctx, state) {
+      let next = state.next;
+      while (true) {
+        const winner = yield ctx.race(ctx.dequeueEvent('q'), ctx.scheduleTimer(10));
+        if (winner.index === 1) {
+          // The read lost and is dropped. Messages it did not take move to the next execution.
+          return yield ctx.continueAsNew({ next, cans: state.cans + 1 });
+        }
+        const message = decodeMessage(winner.value);
+        if (message.done) return { next, cans: state.cans };
+        if (message.i !== next) throw new Error(`expected message ${next}, got ${message.i}`);
+        next++;
+      }
+    });
+
+    await runtime.start();
+    try {
+      await client.startOrchestration(instanceId, 'RaceDrainCan', { next: 0, cans: 0 });
+      await produceNumbered(client, instanceId, count);
+      const result = await client.waitForOrchestration(instanceId, 60000);
+
+      assert.strictEqual(result.status, 'Completed', `orchestration failed: ${result.error}`);
+      assert.strictEqual(result.output.next, count);
+      assert.ok(result.output.cans > 0, 'the timer never won, so the instance never continued as new');
+    } finally {
+      await runtime.shutdown(100);
+    }
+  });
+});
