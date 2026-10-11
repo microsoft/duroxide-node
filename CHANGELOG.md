@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Bumped `duroxide` dependency** — `0.1.30` → `0.1.31` (race fixes, below). Until
+  `duroxide` and `duroxide-pg` publish these fixes, `Cargo.toml` patches both crates to their
+  fix branches; that patch is removed before release.
+- **A signal sent to a dropped `waitForEvent` is discarded.** When a `waitForEvent` loses a
+  `ctx.race()`, a signal already given to it is no longer handed to a later wait for the same
+  event. The later wait receives the next signal. Before, it could receive the stale value, fail
+  replay, or wait forever.
+- **A duplicate start does not change a running instance.** `client.startOrchestration()` for
+  an instance that already has history is ignored; it can no longer replace the instance's
+  orchestration name, version or input. A sub-orchestration whose instance id collides with a
+  running instance now fails its parent, as it already did for a finished one.
+
+### Fixed
+
+- **A queue read that loses a race takes no message.** A drain loop that races
+  `ctx.dequeueEvent()` against a short timer could fail with
+  `nondeterministic: history schedule but no emitted action`, skip a message, or read one twice
+  when the timer won and a message arrived in the same batch. A dropped read is now cancelled
+  where it is dropped, so replay picks the same winners as the first run.
+- **`continueAsNew` carries exactly the unread messages.** A dropped or still-pending read
+  counted as a consumer, so a message could be lost at continue-as-new. The runtime now carries
+  every message that no read returned (at most 100, as before).
+- **Inputs that arrive while an instance continues as new are kept.** Queue messages, signals
+  and cancellation requests that arrived between two executions could be deleted. They now go to
+  the next execution.
+- **`ctx.getKvAllKeys()` and `ctx.pruneKvValuesUpdatedBefore()` use key order.** Replay could
+  fail with `nondeterministic: kv clear mismatch` after a prune.
+
+The queue, signal and continue-as-new changes apply to executions started by `duroxide` 0.1.31
+or later. An execution started by an older runtime keeps the old behaviour until it completes or
+continues as new. See the `duroxide` migration guide for details and rolling upgrades.
+
+### Added
+
+- `__tests__/races.test.js` — drain loops that race `ctx.dequeueEvent()` against a timer: every
+  message arrives once and in order, also across `continueAsNew`.
+- `__tests__/kv_store.test.js` — KV keys are listed and pruned in key order, and a replayed prune
+  matches.
+
 ## [0.2.0] - 2026-10-04
 
 ### Changed
