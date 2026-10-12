@@ -315,6 +315,9 @@ Key properties:
 - **FIFO ordering** — messages delivered in enqueue order
 - **Survives continue-as-new** — queue state persists across restarts
 - **Blocks until available** — orchestration suspends until a message arrives
+- **Safe to race** — `yield ctx.race(ctx.dequeueEvent('tasks'), ctx.scheduleTimer(ms))` drains
+  with a timeout. A read that loses the race takes no message, and `continueAsNew` carries every
+  message that no read returned (at most 100; the runtime drops the rest with a warning)
 
 ### Retry with Session Affinity
 
