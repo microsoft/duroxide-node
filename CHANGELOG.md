@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-12
+
 ### Changed
 
 - **Bumped `duroxide` dependency** — `0.1.30` → `0.1.32` (race fixes and shutdown, below).
