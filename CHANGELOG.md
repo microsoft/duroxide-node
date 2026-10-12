@@ -9,9 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Bumped `duroxide` dependency** — `0.1.30` → `0.1.31` (race fixes, below). Until
-  `duroxide` and `duroxide-pg` publish these fixes, `Cargo.toml` patches both crates to their
-  fix branches; that patch is removed before release.
+- **Bumped `duroxide` dependency** — `0.1.30` → `0.1.32` (race fixes and shutdown, below).
+  `0.1.31` was reserved and never published.
+- **Bumped `duroxide-pg` dependency** — `0.1.35` → `0.1.36`. Under heavy load, an orchestration
+  fetched from PostgreSQL could come with a lock that had already expired. Every ack then failed
+  with `Invalid lock token`, and the message was retried for as long as the load lasted. The lock
+  now starts when the instance is claimed (migration `0025`). An SDK version built with
+  `duroxide-pg` 0.1.35 refuses a database that has this migration.
+- **`runtime.shutdown(timeoutMs)` returns as soon as the runtime stops.** `timeoutMs` (default
+  1000) is now the longest it waits for in-flight work before cancelling the rest, not a fixed
+  delay. Shutdown also stops every task the runtime started, so no poller keeps a database
+  connection open after it returns.
 - **A signal sent to a dropped `waitForEvent` is discarded.** When a `waitForEvent` loses a
   `ctx.race()`, a signal already given to it is no longer handed to a later wait for the same
   event. The later wait receives the next signal. Before, it could receive the stale value, fail
@@ -37,7 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`ctx.getKvAllKeys()` and `ctx.pruneKvValuesUpdatedBefore()` use key order.** Replay could
   fail with `nondeterministic: kv clear mismatch` after a prune.
 
-The queue, signal and continue-as-new changes apply to executions started by `duroxide` 0.1.31
+The queue, signal and continue-as-new changes apply to executions started by `duroxide` 0.1.32
 or later. An execution started by an older runtime keeps the old behaviour until it completes or
 continues as new. See the `duroxide` migration guide for details and rolling upgrades.
 

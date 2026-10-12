@@ -249,8 +249,8 @@ Release manifests resolve both Rust dependencies from crates.io. Keep
 not ship `[patch.crates-io]` sections or inline `path =` overrides:
 
 ```toml
-duroxide = { version = "0.1.30", features = ["sqlite"] }
-duroxide-pg = "0.1.35"
+duroxide = { version = "0.1.32", features = ["sqlite"] }
+duroxide-pg = "0.1.36"
 ```
 
 Temporary local path overrides may be useful during cross-repository
@@ -389,7 +389,7 @@ File-based SQLite can hit "database is locked" errors under concurrent orchestra
 
 ### Runtime Shutdown
 
-`Runtime.shutdown(timeoutMs)` waits for the full timeout duration unconditionally (the Rust runtime doesn't short-circuit when dispatchers drain). Use a small timeout (e.g., 100ms) in tests.
+`Runtime.shutdown(timeoutMs)` returns as soon as all runtime work has stopped. `timeoutMs` (default 1000) is the longest it waits for in-flight work before cancelling the rest; it is not a fixed delay.
 
 ### Platform-Specific Binary
 

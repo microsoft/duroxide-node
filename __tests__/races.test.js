@@ -600,7 +600,7 @@ describe('type preservation', () => {
 // ─── dequeueEvent raced against a timer ──────────────────────────
 //
 // A drain loop races a queue read against a short timer. When the timer wins, the read is
-// dropped. Since duroxide 0.1.31 a dropped read is cancelled at the drop: it never takes a
+// dropped. Since duroxide 0.1.32 a dropped read is cancelled at the drop: it never takes a
 // message, replay picks the same winners as the live run, and continueAsNew carries exactly
 // the messages that no read returned. Before, a timer win followed by a message in the same
 // batch could fail the instance with "nondeterministic: history schedule but no emitted
