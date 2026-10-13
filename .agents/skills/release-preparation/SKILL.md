@@ -56,6 +56,9 @@ local-package smoke tests on the pull request.
 
 After the pull request is merged, release preparation is complete.
 
-Do not run `npm publish`, create a GitHub Release, or add publishing credentials
-or internal pipeline configuration. A Microsoft maintainer runs the internal
-release pipeline.
+Do not run `npm publish` or add publishing credentials or internal pipeline
+configuration. A Microsoft maintainer runs the internal release pipeline.
+
+Do not create the GitHub Release while preparing the release. It comes after the
+packages are on npm, as described in
+[RELEASE_POLICY.md](../../../RELEASE_POLICY.md#github-release).
