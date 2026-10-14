@@ -146,7 +146,7 @@ All scheduling methods return descriptors that must be **yielded**:
 | `ctx.clearValue(key)` | Remove a single KV entry (no yield) |
 | `ctx.clearAllValues()` | Remove all KV entries (no yield) |
 | `ctx.getKvAllValues()` | Snapshot all KV entries for the current instance |
-| `ctx.getKvAllKeys()` | List all KV keys for the current instance |
+| `ctx.getKvAllKeys()` | List all KV keys for the current instance, in key order |
 | `ctx.getKvLength()` | Count KV entries for the current instance |
 | `ctx.pruneKvValuesUpdatedBefore(cutoffMs)` | Remove persisted KV entries older than a cutoff |
 | `yield ctx.getValueFromInstance(instanceId, key)` | Read another instance's KV entry |

@@ -26,9 +26,13 @@ pub fn lifecycle_test_hooks(runtime: &JsRuntime) -> LifecycleTestHooks {
 impl LifecycleTestHooks {
     #[napi]
     pub fn hold(&self, point: String) -> Result<()> {
-        self.hooks
-            .hold(parse_point(&point)?)
-            .map(|_| ())
+        let parsed = parse_point(&point)?;
+        let gate = if point == "blocking-provider" {
+            self.hooks.hold_blocking(parsed)
+        } else {
+            self.hooks.hold(parsed)
+        };
+        gate.map(|_| ())
             .map_err(|error| Error::from_reason(format!("test gate: {error:?}")))
     }
 
@@ -78,12 +82,12 @@ fn parse_point(point: &str) -> Result<LifecyclePoint> {
     match point {
         "startup" => Ok(LifecyclePoint::StartupBeforeIo),
         "partial-startup" => Ok(LifecyclePoint::StartupAfterSpawn(
-            LifecycleTask::OrchestrationDispatcher,
+            LifecycleTask::OrchestrationSlot,
         )),
-        "provider" => Ok(LifecyclePoint::ProviderReturn(
+        "provider" | "blocking-provider" => Ok(LifecyclePoint::ProviderReturn(
             ProviderOperation::FetchOrchestration,
         )),
-        "worker" => Ok(LifecyclePoint::ParentWork(LifecycleTask::WorkDispatcher)),
+        "worker" => Ok(LifecyclePoint::ParentWork(LifecycleTask::WorkerSlot)),
         "force" => Ok(LifecyclePoint::ForceRequested),
         "coordinator" => Ok(LifecyclePoint::ShutdownCoordinator),
         _ => Err(Error::from_reason("unknown lifecycle test point")),

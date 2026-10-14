@@ -83,7 +83,10 @@ SDK never exits the process itself. This contract covers core-owned execution,
 not arbitrary unregistered JavaScript continuations or the .NET adapter's
 additional foreign-continuation barrier. Independent provider-owned background
 work has a separate lifetime. Dropping/ignoring the returned Promise does not
-cancel the core's retained cleanup.
+cancel the adapter-owned native cleanup future. Bounded waits and first-stop
+deadlines belong to this adapter; native Rust shutdown itself awaits cleanup
+without a total limit. Provider futures can be canceled under the provider's
+atomic acknowledgement and peek-lock recovery contract.
 
 This complete example has no admitted work and can finish before grace:
 
@@ -375,6 +378,9 @@ Key properties:
 - **FIFO ordering** — messages delivered in enqueue order
 - **Survives continue-as-new** — queue state persists across restarts
 - **Blocks until available** — orchestration suspends until a message arrives
+- **Safe to race** — `yield ctx.race(ctx.dequeueEvent('tasks'), ctx.scheduleTimer(ms))` drains
+  with a timeout. A read that loses the race takes no message, and `continueAsNew` carries every
+  message that no read returned (at most 100; the runtime drops the rest with a warning)
 
 ### Retry with Session Affinity
 

@@ -43,12 +43,13 @@ async function fixture(options) {
   return { provider, runtime, hooks: instrumented ? native._lifecycleTestHooks(runtime._native) : null };
 }
 
-function retired(hooks, forced) {
+function retired(hooks, forced, rollback = false) {
   const state = JSON.parse(hooks.snapshot());
   assert.equal(state.active, 0);
   assert.equal(state.cleanupActive, 0);
   assert.equal(state.started, state.completed);
-  assert.equal(state.coordinators, 1);
+  if (rollback) assert.ok(state.coordinators >= 1 && state.coordinators <= 2);
+  else assert.equal(state.coordinators, 1);
   if (forced !== undefined) assert.equal(state.forceRequests, forced ? 1 : 0);
 }
 
@@ -199,24 +200,24 @@ for (const typed of [false, true]) {
 test('partial-startup failure retains descendants until actual rollback', { skip: !instrumented }, async () => {
   const { runtime, hooks } = await fixture();
   hooks.hold('partial-startup');
-  hooks.hold('provider');
+  hooks.hold('blocking-provider');
   hooks.fail('partial-startup', SECRET);
   const startup = runtime.start();
   const failed = assert.rejects(startup, diagnostic('lifecycle_start_failed'));
   try {
     await hooks.waitEntered('partial-startup');
-    await hooks.waitEntered('provider');
+    await hooks.waitEntered('blocking-provider');
     hooks.release('partial-startup');
     await failed;
     assert.ok(JSON.parse(hooks.snapshot()).active > 0);
     await assert.rejects(runtime.start(), diagnostic('lifecycle_terminal'));
   } finally {
     hooks.release('partial-startup');
-    hooks.release('provider');
+    hooks.release('blocking-provider');
   }
   await assert.rejects(runtime.shutdown(0), diagnostic('lifecycle_shutdown_failed'));
   await assert.rejects(runtime.shutdown(30_000), diagnostic('lifecycle_shutdown_failed'));
-  retired(hooks);
+  retired(hooks, undefined, true);
 });
 
 test('contained operational failure is preserved by repeated real shutdown calls', { skip: !instrumented }, async () => {
@@ -228,23 +229,36 @@ test('contained operational failure is preserved by repeated real shutdown calls
   hooks.release('worker');
   await assert.rejects(runtime.shutdown(100), diagnostic('lifecycle_shutdown_failed'));
   await assert.rejects(runtime.shutdown(30_000), diagnostic('lifecycle_shutdown_failed'));
-  retired(hooks);
+  retired(hooks, undefined, true);
+});
+
+test('cancellation-safe provider fetch retires without waiting for its gate', { skip: !instrumented }, async () => {
+  const { runtime, hooks } = await fixture();
+  hooks.hold('provider');
+  await runtime.start();
+  await hooks.waitEntered('provider');
+  try {
+    await runtime.shutdown(1000);
+    retired(hooks, false);
+  } finally {
+    hooks.release('provider');
+  }
 });
 
 for (const force of [false, true]) {
   test(`ordered ${force ? 'force-before-retirement' : 'retirement-before-force'} 100 times`, { skip: !instrumented }, async () => {
     for (let iteration = 0; iteration < 100; iteration++) {
       const { runtime, hooks } = await fixture();
-      hooks.hold('provider');
+      hooks.hold('blocking-provider');
       hooks.hold(force ? 'force' : 'coordinator');
       await runtime.start();
-      await hooks.waitEntered('provider');
+      await hooks.waitEntered('blocking-provider');
       const stop = runtime.shutdown(force ? 0 : 30_000);
       try {
         await hooks.waitEntered(force ? 'force' : 'coordinator');
         assert.ok(JSON.parse(hooks.snapshot()).active > 0);
       } finally {
-        hooks.release('provider');
+        hooks.release('blocking-provider');
         hooks.release(force ? 'force' : 'coordinator');
       }
       assert.equal(await stop, undefined);
@@ -283,7 +297,7 @@ test('retained completed Runtime does not prevent natural process exit', async (
 });
 
 for (const scenario of ['late', 'retained']) {
-  test(`isolated provider timeout: ${scenario}`, { skip: !instrumented }, async () => {
+  test(`isolated non-yielding provider timeout: ${scenario}`, { skip: !instrumented }, async () => {
     const child = spawn(process.execPath, ['--expose-gc', path.join(__dirname, 'fixtures', 'lifecycle-probe.cjs'), scenario], {
       cwd: root, stdio: ['pipe', 'pipe', 'pipe'], env: process.env,
     });

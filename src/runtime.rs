@@ -7,6 +7,7 @@ use napi_derive::napi;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::sync::watch;
 
 use duroxide::runtime::OrchestrationHandler;
 use duroxide::runtime::{self, OrchestrationRegistry};
@@ -91,6 +92,7 @@ pub struct JsRuntime {
     callback_refs: Vec<ThreadsafeFunction<String, ErrorStrategy::Fatal>>,
     started: bool,
     shutdown_requested: bool,
+    stop: Option<ShutdownOperation>,
     startup_error: Option<runtime::RuntimeStartError>,
     #[cfg(feature = "test-hooks")]
     pub(crate) test_hooks: runtime::test_hooks::LifecycleHooks,
@@ -112,6 +114,7 @@ impl JsRuntime {
             callback_refs: Vec::new(),
             started: false,
             shutdown_requested: false,
+            stop: None,
             startup_error: None,
             #[cfg(feature = "test-hooks")]
             test_hooks: runtime::test_hooks::LifecycleHooks::default(),
@@ -133,6 +136,7 @@ impl JsRuntime {
             callback_refs: Vec::new(),
             started: false,
             shutdown_requested: false,
+            stop: None,
             startup_error: None,
             #[cfg(feature = "test-hooks")]
             test_hooks: runtime::test_hooks::LifecycleHooks::default(),
@@ -403,10 +407,20 @@ impl JsRuntime {
     /// Stop with bounded waiting. Do not overlap lifecycle/registration calls.
     #[napi(ts_return_type = "Promise<void>")]
     pub fn shutdown(&mut self, env: Env, timeout_ms: Option<i64>) -> Result<napi::JsObject> {
-        let (grace, grace_deadline, total_deadline) = shutdown_deadlines(timeout_ms)?;
-        if let Some(rt) = &self.inner {
-            rt.request_shutdown_until(grace_deadline, total_deadline)
-                .map_err(shutdown_error)?;
+        let (grace_deadline, total_deadline) = shutdown_deadlines(timeout_ms)?;
+        if self.stop.is_none() {
+            if let Some(rt) = &self.inner {
+                rt.request_shutdown();
+                let (completed, completion) = watch::channel(None);
+                let runtime = rt.clone();
+                napi::bindgen_prelude::spawn(async move {
+                    completed.send_replace(Some(runtime.shutdown_until(grace_deadline).await));
+                });
+                self.stop = Some(ShutdownOperation {
+                    completion,
+                    total_deadline,
+                });
+            }
         }
         self.shutdown_requested = true;
         if self.inner.is_none() {
@@ -416,20 +430,21 @@ impl JsRuntime {
             self.next_fn = None;
             self.dispose_fn = None;
         }
-        let runtime = self.inner.clone();
+        let stop = self.stop.clone();
         let startup_error = self.startup_error;
         let mut callbacks = self.callback_refs.clone();
         env.execute_tokio_future(
             async move {
-                Ok(match runtime {
-                    Some(runtime) => Some(runtime.shutdown_with_grace(grace).await),
+                Ok(match stop {
+                    Some(stop) => Some(stop.wait().await),
                     None => None,
                 })
             },
             move |env, result| {
                 let quiescent = match result {
                     None | Some(Ok(_)) => true,
-                    Some(Err(error)) => error.is_quiescent(),
+                    Some(Err(ShutdownWaitError::Core(error))) => error.is_quiescent(),
+                    Some(Err(_)) => false,
                 };
                 // Keep the core completion record, without keeping Node's event loop
                 // alive after retirement. N-API unref must run on the JS thread.
@@ -468,17 +483,61 @@ fn start_error(error: runtime::RuntimeStartError) -> Error {
     Error::from_reason(format!("lifecycle_start_failed: {error}"))
 }
 
-fn shutdown_error(error: runtime::RuntimeShutdownError) -> Error {
-    let category = match error {
-        runtime::RuntimeShutdownError::TimedOut => "lifecycle_shutdown_timed_out",
-        runtime::RuntimeShutdownError::InvalidTimeouts
-        | runtime::RuntimeShutdownError::DeadlineOverflow => "lifecycle_invalid_timeout",
-        _ => "lifecycle_shutdown_failed",
-    };
-    Error::from_reason(format!("{category}: {error}"))
+#[derive(Clone)]
+struct ShutdownOperation {
+    completion: watch::Receiver<
+        Option<std::result::Result<runtime::ShutdownOutcome, runtime::RuntimeShutdownError>>,
+    >,
+    total_deadline: Instant,
 }
 
-fn shutdown_deadlines(timeout_ms: Option<i64>) -> Result<(Duration, Instant, Instant)> {
+#[derive(Clone, Copy)]
+enum ShutdownWaitError {
+    TimedOut,
+    OwnerLost,
+    Core(runtime::RuntimeShutdownError),
+}
+
+impl ShutdownOperation {
+    async fn wait(mut self) -> std::result::Result<runtime::ShutdownOutcome, ShutdownWaitError> {
+        loop {
+            {
+                let completed = self.completion.borrow_and_update();
+                if let Some(result) = *completed {
+                    return result.map_err(ShutdownWaitError::Core);
+                }
+                if Instant::now() >= self.total_deadline {
+                    return Err(ShutdownWaitError::TimedOut);
+                }
+            }
+            tokio::select! {
+                biased;
+                changed = self.completion.changed() => {
+                    if changed.is_err() {
+                        return Err(ShutdownWaitError::OwnerLost);
+                    }
+                },
+                () = tokio::time::sleep_until(self.total_deadline.into()) => {},
+            }
+        }
+    }
+}
+
+fn shutdown_error(error: ShutdownWaitError) -> Error {
+    match error {
+        ShutdownWaitError::TimedOut => Error::from_reason(
+            "lifecycle_shutdown_timed_out: cleanup remains owned and incomplete; application or supervisor must terminate the process",
+        ),
+        ShutdownWaitError::OwnerLost => Error::from_reason(
+            "lifecycle_shutdown_failed: native shutdown owner failed; quiescence is unproven; application or supervisor must terminate the process",
+        ),
+        ShutdownWaitError::Core(error) => {
+            Error::from_reason(format!("lifecycle_shutdown_failed: {error}"))
+        }
+    }
+}
+
+fn shutdown_deadlines(timeout_ms: Option<i64>) -> Result<(Instant, Instant)> {
     let invalid = || {
         Error::from_reason(
         "lifecycle_invalid_timeout: timeoutMs must be a nonnegative supported millisecond duration",
@@ -498,5 +557,5 @@ fn shutdown_deadlines(timeout_ms: Option<i64>) -> Result<(Duration, Instant, Ins
     total_deadline
         .checked_add(Duration::from_millis(1))
         .ok_or_else(invalid)?;
-    Ok((grace, grace_deadline, total_deadline))
+    Ok((grace_deadline, total_deadline))
 }

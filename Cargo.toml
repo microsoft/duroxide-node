@@ -10,8 +10,8 @@ crate-type = ["cdylib"]
 test-hooks = ["duroxide/test-hooks"]
 
 [dependencies]
-duroxide = { version = "0.1.30", features = ["sqlite"] }
-duroxide-pg = "0.1.35"
+duroxide = { version = "0.1.32", features = ["sqlite"] }
+duroxide-pg = "0.1.36"
 napi = { version = "2", features = ["async", "napi6", "serde-json"] }
 napi-derive = "2"
 async-trait = "0.1"

@@ -51,9 +51,9 @@ async function main() {
     return;
   }
   const hooks = native._lifecycleTestHooks(runtime._native);
-  hooks.hold('provider');
+  hooks.hold('blocking-provider');
   await runtime.start();
-  await hooks.waitEntered('provider');
+  await hooks.waitEntered('blocking-provider');
   const input = createInterface({ input: process.stdin });
   const command = new Promise(resolve => input.once('line', resolve));
   emit('STOPPING');
@@ -85,7 +85,7 @@ async function main() {
     emit('RETAINED');
     await new Promise(() => {});
   } else {
-    hooks.release('provider');
+    hooks.release('blocking-provider');
     const deadline = performance.now() + 2000;
     while (true) {
       try { await runtime.shutdown(30_000); break; }

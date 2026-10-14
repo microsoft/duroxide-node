@@ -249,8 +249,8 @@ Release manifests resolve both Rust dependencies from crates.io. Keep
 not ship `[patch.crates-io]` sections or inline `path =` overrides:
 
 ```toml
-duroxide = { version = "0.1.30", features = ["sqlite"] }
-duroxide-pg = "0.1.35"
+duroxide = { version = "0.1.32", features = ["sqlite"] }
+duroxide-pg = "0.1.36"
 ```
 
 Temporary local path overrides may be useful during cross-repository
@@ -398,8 +398,10 @@ early. Zero requests immediate force; force is not proof of quiescence.
 The first valid stop fixes both deadlines, including for repeated observations.
 
 The adapter stores the prepared core Arc before awaiting fallible startup and
-retains it after startup failure, stop, or timeout. Core task/cleanup ownership
-survives a dropped waiter. Repeated shutdown observes the same operation rather
+retains it after startup failure, stop, or timeout. The adapter retains one native
+cleanup future independently of its bounded observers. Upstream core tracking
+includes native task destruction; provider futures can be canceled under the
+provider's atomic-acknowledgement and recovery contract. Repeated shutdown observes the same operation rather
 than succeeding because an Arc was taken from the wrapper. Valid pre-start stop
 is terminal; registration/start afterward reject, and metrics remain unavailable
 after stop/startup failure. Same-instance lifecycle/registration calls must remain
