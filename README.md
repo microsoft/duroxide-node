@@ -25,6 +25,32 @@ Node.js/TypeScript SDK for the [Duroxide](https://github.com/microsoft/duroxide)
 - **SQLite & PostgreSQL** — pluggable storage backends
 - **KV store** — durable per-instance key-value state with snapshots and pruning via `ctx.getKvAllValues()` / `client.getKvAllValues()`
 
+## Runtime lifecycle (unreleased)
+
+`await runtime.start()` returns after startup and propagates fallible core errors.
+`await runtime.shutdown(timeoutMs)` still resolves to `undefined` on success.
+The argument is a nonnegative safe-integer grace period in milliseconds, within
+the native monotonic deadline range. Omission means 1000 ms; total waiting is
+grace plus 5000 ms. Idle work can finish early.
+
+The first stop fixes both deadlines. Repeated calls observe the same operation,
+including timeout/operational errors and genuine late completion. Shutdown before
+start is now terminal; later start or registration is rejected. Metrics remain
+unavailable after stop. Serialize lifecycle and registration calls on each runtime.
+
+A `lifecycle_shutdown_timed_out` rejection means cleanup is still owned and
+incomplete. Do not restart the worker: arrange process termination through the
+application or supervisor, even if a later observation reports completion. The SDK
+does not terminate the process. This narrow adapter change does not add tracking
+of arbitrary JavaScript continuations or the .NET SDK's additional managed
+foreign-retirement barrier. Independently owned provider/Client resources have
+their own lifetime. See the [lifecycle guide](docs/user-guide.md#runtime-lifecycle)
+for validation and an executable early-drain/repeated-stop example.
+
+These unreleased changes require the corresponding core lifecycle release before
+distribution; a temporary local Cargo override is development evidence, not a
+release dependency pin.
+
 ## Quick Start
 
 ```bash

@@ -12,12 +12,16 @@ mod handlers;
 mod pg_provider;
 mod provider;
 mod runtime;
+#[cfg(feature = "test-hooks")]
+mod test_hooks;
 mod types;
 
 pub use client::JsClient;
 pub use pg_provider::JsPostgresProvider;
 pub use provider::JsSqliteProvider;
 pub use runtime::{JsRuntime, JsRuntimeOptions};
+#[cfg(feature = "test-hooks")]
+pub use test_hooks::lifecycle_test_hooks;
 pub use types::{JsOrchestrationStatus, JsQueueDepths, JsSystemMetrics};
 
 /// Emit an activity trace through the current Rust ActivityContext.
