@@ -9,27 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Use fallible core startup and bounded shutdown while preserving `Promise<void>`.
-  Shutdown uses the supplied grace plus five seconds, with a one-second omitted
-  grace, and idle workers can finish early. Invalid durations reject before
-  changing ownership, even for no-work/repeated calls. Repeated calls retain
-  the original operation and errors instead of succeeding on an empty runtime;
-  no call renews the first deadlines. Pre-core registry/preparation failures
-  become ordinary retained startup errors without changing registration policy.
-- Pre-start shutdown is terminal; start/registration after activation or stop is
-  rejected. Post-stop metrics remain unavailable. Core completion remains retained
-  without keeping Node's event loop alive after proven retirement.
-- Timeouts explicitly require application/supervisor process termination while
-  cleanup remains owned, even if a later observer proves retirement. Finite grace
-  does not guarantee bounded forced cleanup. This narrow adapter does not add
-  .NET's foreign-continuation lifetime barrier or own detached application work.
-  The matching published core dependency is a separate release prerequisite;
-  local development overrides are not distributable.
+- Use fallible core startup and bounded shutdown waits while preserving `Promise<void>`.
+  Total waiting is the supplied grace plus five seconds.
+  Omitted grace is one second. Idle workers can finish early.
+  Invalid durations fail before ownership changes, including for no-work and repeated calls.
+  Repeated calls retain the original operation, errors, and deadlines.
+  They do not report success merely because the wrapper transferred its core.
+  Registry and preparation failures become ordinary retained startup errors.
+  Registration policy does not change.
+- Pre-start shutdown is terminal.
+  Start and registration calls fail after activation or stop.
+  Post-stop metrics remain unavailable.
+  Proven cleanup permits release of obsolete callback and core holders on the JavaScript thread.
+  The terminal result and deadlines remain available.
+- Timeouts require application- or supervisor-owned process termination while cleanup remains owned.
+  Later proven cleanup does not remove that requirement.
+  Finite grace does not guarantee bounded forced cleanup.
+  This adapter does not add .NET's foreign-continuation barrier or own detached application work.
+  Release requires a matching published core dependency.
+  Do not distribute local development overrides.
 
 ### Tests
 
-- SQLite-only real-wrapper lifecycle coverage, feature-gated provider/fault controls,
-  ordered race repetitions, isolated held-provider probes, and production-export checks.
+- Add SQLite-only lifecycle coverage through the real wrapper.
+  Cases include feature-gated provider and fault controls, repeated ordered races,
+  isolated held-provider probes, and production-export checks.
 
 ## [0.2.2] - 2026-10-21
 

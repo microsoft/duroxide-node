@@ -27,39 +27,45 @@ Node.js/TypeScript SDK for the [Duroxide](https://github.com/microsoft/duroxide)
 
 ## Runtime lifecycle (unreleased)
 
-`await runtime.start()` returns after startup and propagates fallible core errors.
+`await runtime.start()` returns after startup. Core startup errors reject the Promise.
 `await runtime.shutdown(timeoutMs)` still resolves to `undefined` on success.
-The argument is a nonnegative safe-integer grace period in milliseconds, within
-the native monotonic deadline range. Omission means 1000 ms; total waiting is
-grace plus 5000 ms. Idle work can finish early.
-At the first stop call, the supervisor's **remaining** time must exceed that total,
-with room for other shutdown work, result delivery and process exit. Passing the
-entire outer budget as grace cannot fit; see the
+The argument is a nonnegative safe-integer grace period in milliseconds.
+It must fit the native monotonic deadline range.
+Omitted grace is 1000 ms. Total waiting is grace plus 5000 ms.
+Idle work can finish early.
+At the first stop call, the supervisor's **remaining** time must exceed that total.
+Leave time for other shutdown work, result delivery, and process exit.
+Do not pass the entire outer budget as grace. See the
 [budget-sizing guidance](docs/user-guide.md#sizing-the-supervisor-budget).
 
-The first stop fixes both deadlines. Repeated calls observe the same operation,
-including timeout/operational errors and genuine late completion. Shutdown before
-start is now terminal; later start or registration is rejected. Metrics remain
-unavailable after stop. Serialize lifecycle and registration calls on each runtime.
-Actual quiescence releases obsolete native callback/core holders, including after
-a quiescent failure or late cleanup without another caller. Stop results and the
-original deadlines remain; incomplete or unproven cleanup retains ownership.
+The first stop fixes both deadlines. Repeated calls observe the same operation.
+They can report timeout, operational errors, or actual late completion.
+Shutdown before start is terminal. Later start or registration calls fail.
+Metrics remain unavailable after stop.
+Serialize lifecycle and registration calls on each runtime.
+
+**Quiescence** means that tracked core execution and cleanup have ended.
+Only proven quiescence permits release of obsolete native callback and core holders.
+This includes quiescent failures and late cleanup without another caller.
+Stop results and the original deadlines remain available after release.
+Incomplete cleanup, unproven cleanup, or a callback-release failure retains ownership.
 
 A `lifecycle_shutdown_timed_out` rejection means cleanup is still owned and
-incomplete. Do not restart the worker: arrange process termination through the
-application or supervisor, even if a later observation reports completion. The SDK
-does not terminate the process. `lifecycle_shutdown_failed` is an error category,
-not proof of quiescence: it also covers an unproven/lost cleanup owner and a
-callback-reference release failure after core cleanup. Do not infer release
-permission from that prefix. This narrow adapter change does not add tracking
-of arbitrary JavaScript continuations or the .NET SDK's additional managed
-foreign-retirement barrier. Independently owned provider/Client resources have
-their own lifetime. See the [lifecycle guide](docs/user-guide.md#runtime-lifecycle)
+incomplete. Do not restart the worker.
+The application or supervisor must terminate the process, even if a later observation reports completion.
+The SDK does not terminate the process.
+`lifecycle_shutdown_failed` is an error category, not proof of quiescence.
+It also covers a lost cleanup owner and failure to release callback references after core cleanup.
+Do not infer release permission from that prefix.
+
+This adapter does not track arbitrary JavaScript continuations.
+It does not add the .NET SDK's additional managed foreign-retirement barrier.
+Independent provider and Client resources have their own lifetime.
+See the [lifecycle guide](docs/user-guide.md#runtime-lifecycle)
 for validation and an executable early-drain/repeated-stop example.
 
-These unreleased changes require the corresponding core lifecycle release before
-distribution; a temporary local Cargo override is development evidence, not a
-release dependency pin.
+These unreleased changes require a compatible core lifecycle release before distribution.
+A temporary local Cargo override provides development evidence, not a release dependency pin.
 
 ## Quick Start
 

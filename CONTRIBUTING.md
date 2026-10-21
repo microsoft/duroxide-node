@@ -40,9 +40,10 @@ After Rust source changes (`src/*.rs`), re-run `npx napi build --platform` befor
 
 ### Lifecycle checks without PostgreSQL
 
-The lifecycle suite requires a freshly built local native module, not an optional
-prebuilt platform package. Its private controls are absent from production builds.
-Keep native outputs, Cargo targets and staged sources separate in both modes.
+The lifecycle suite requires a freshly built local native module.
+Do not use an optional prebuilt platform package.
+Production builds omit private test controls.
+Keep native outputs, Cargo targets, and staged sources separate for each mode.
 For example, from the repository root in PowerShell:
 
 ```powershell
@@ -58,39 +59,42 @@ node ci\run-lifecycle.cjs instrumented target\lifecycle-instrumented\stage
 Remove-Item Env:CARGO_TARGET_DIR
 ```
 
-Instrumented cases exercise real provider waits and contained owned-task faults.
-The recurring `lifecycle-instrumented` CI job runs on pull requests and main,
-alongside production tests. It requires every hook-dependent case to execute:
-missing hooks, mode/hash mismatches, skips, TODOs, aborted tests or empty selection
-fail validation. Production mode skips only explicitly marked instrumented cases
-and continues to assert that private exports are absent.
+Instrumented cases exercise real provider waits and contained faults in owned tasks.
+The `lifecycle-instrumented` CI job runs on pull requests and main, alongside production tests.
+Every hook-dependent case must execute.
+Missing hooks, mode or hash mismatches, skips, TODOs, aborted tests, and empty selections fail validation.
+Production mode skips only explicitly marked instrumented cases.
+It also checks that private exports are absent.
 
-The stage manifest identifies the exact local addon and SHA-256, selected feature
-mode and source hashes. Tests match the Duroxide loader's native class identities,
-not an arbitrary cached `.node`. Sources live under a stage-local `node_modules`
-directory so root-level test discovery cannot run duplicate staged suites. The
-runner sets mode/provenance only in its child environment and retains TAP, stderr
-and JSON totals beside the manifest. Instrumented evidence artifacts are not
-named `binary-*`, contain no native binaries, and never feed packing/release jobs.
-`CARGO_TARGET_DIR` also tells napi where to copy the compiled library from;
-passing only Cargo's `--target-dir` would not set napi's source path.
+The stage manifest identifies the exact local addon, its SHA-256, the selected feature mode, and source hashes.
+Tests match the Duroxide loader's native class identities, not an arbitrary cached `.node`.
+Sources use a stage-local `node_modules` directory.
+This prevents root-level test discovery from running duplicate staged suites.
+The runner sets mode and provenance only in its child environment.
+It retains TAP, stderr, and JSON totals beside the manifest.
+Instrumented evidence artifacts do not use `binary-*` names or contain native binaries.
+They never feed packing or release jobs.
+`CARGO_TARGET_DIR` also tells napi where to find the compiled library.
+Cargo's `--target-dir` alone does not set napi's source path.
 The `--dts` filename is relative to napi's destination directory.
 
-Both ordered races still run **100 iterations**. Held-provider probes still
-require `6000 <= elapsedMs < 7000` for omitted grace, `5000 <= elapsedMs < 6000`
-for zero grace, and `repeatedMs < 1000`. Their separate message-delivery watchdog
-allows the first call, repeated call and bounded transport headroom; it cannot
-relax those measured SDK limits. The suite also checks incomplete-cleanup
-event-loop liveness without stdin/referenced timers, and activity-only
-self-capturing callback collection in a live process after creating frames retire.
-Collection uses bounded WeakRef/FinalizationRegistry settling with a noncapturing
-control, not natural process exit or zero task counts. Successful, quiescent-error
-and late cleanup are covered, including late release with no further stop caller.
+Both ordered races still run **100 iterations**.
+Held-provider probes require `6000 <= elapsedMs < 7000` for omitted grace,
+`5000 <= elapsedMs < 6000` for zero grace, and `repeatedMs < 1000`.
+A separate message-delivery watchdog allows the first call, repeated call, and limited transport time.
+It cannot relax those measured SDK limits.
 
-Native-independent harness/oracle checks can run before a native build:
-`node --test __tests__/lifecycle-oracles.test.js`. They include deliberate child
-failure, malformed protocol, zero-start counter and CI-skip negative controls.
+The suite checks event-loop liveness during incomplete cleanup, without stdin or referenced timers.
+It also checks collection of activity-only self-capturing callbacks in a live process, after the creating frames return.
+Collection uses bounded WeakRef/FinalizationRegistry settling and a noncapturing control.
+It does not use natural process exit or zero task counts as proof.
+Cases cover successful, quiescent-error, and late cleanup, including late release without another stop caller.
 
-Do not publish instrumented assets or temporary local core overrides. A matching
-published core minimum remains a separate prerequisite: CI must fail missing core
-APIs rather than silently skip coverage or substitute an unofficial dependency.
+Harness and oracle checks that do not need native code can run before a native build:
+`node --test __tests__/lifecycle-oracles.test.js`.
+They include negative controls for child failure, malformed protocol, a zero-start counter, and CI skips.
+
+Do not publish instrumented assets or temporary local core overrides.
+A matching published core minimum remains a separate prerequisite.
+CI must fail when core APIs are missing.
+It must not silently skip coverage or substitute an unofficial dependency.

@@ -391,32 +391,53 @@ File-based SQLite can hit "database is locked" errors under concurrent orchestra
 
 ### Runtime Shutdown
 
-In the unreleased lifecycle, `Runtime.shutdown(timeoutMs)` remains a
-`Promise<void>` but waits for actual core retirement only within a finite budget:
-supplied grace plus 5000 ms, with 1000 ms omitted grace. Idle execution can finish
-early. Zero requests immediate force; force is not proof of quiescence.
+In the unreleased lifecycle, `Runtime.shutdown(timeoutMs)` remains a `Promise<void>`.
+It waits for actual core retirement within supplied grace plus 5000 ms.
+Omitted grace is 1000 ms. Idle execution can finish early.
+Zero requests immediate force. Force does not prove that cleanup ended.
 The first valid stop fixes both deadlines, including for repeated observations.
 
-The adapter stores the prepared core Arc before awaiting fallible startup and
-retains it after startup failure, stop, or timeout. The adapter retains one native
-cleanup future independently of its bounded observers. Upstream core tracking
-includes native task destruction; provider futures can be canceled under the
-provider's atomic-acknowledgement and recovery contract. Repeated shutdown observes the same operation rather
-than succeeding because an Arc was taken from the wrapper. Valid pre-start stop
-is terminal; registration/start afterward reject, and metrics remain unavailable
-after stop/startup failure. Same-instance lifecycle/registration calls must remain
-serialized.
+The adapter stores the prepared core Arc before it awaits fallible startup.
+Startup failure, stop, and timeout do not discard cleanup ownership.
+One native cleanup future remains owned independently of bounded caller waits.
+Upstream core tracking includes native task destruction.
+Provider futures can be canceled under the provider's atomic acknowledgment and recovery contract.
+Repeated shutdown observes the same operation.
+It does not report success merely because the wrapper transferred its Arc.
 
-On proven core retirement, the shutdown Promise resolver runs on the JavaScript
-thread and unreferences retained ThreadsafeFunctions so an otherwise idle process
-can exit. Unref does not abort/free callbacks or discard completion. Incomplete
-cleanup retains ownership and may keep the process alive. Timeout explicitly
-requires application/supervisor process termination, even after late retirement;
-the SDK itself never kills the process.
+```mermaid
+flowchart TD
+    Stop["First valid stop: fix grace and total"] --> Cleanup["Keep one native cleanup operation"]
+    Stop --> Wait["Wait within the original total"]
+    Cleanup -->|Cleanup proven| Release["Release callback and core holders on the JavaScript thread"]
+    Cleanup -->|Cleanup unproven| Retain["Retain ownership"]
+    Release -->|Release fails| Retain
+    Wait -->|Completion published| Result["Resolve undefined or reject with an error"]
+    Wait -->|Total expires first| Timeout["Reject timeout; keep cleanup owned"]
+    Timeout --> Terminate["Application or supervisor must terminate the process"]
+```
 
-This is core-owned execution, not complete ownership of every JavaScript task.
-Independently owned Clients, providers, and provider token-refresh work remain
-separate. See the [lifecycle guide](user-guide.md#runtime-lifecycle) for argument
+The caller's wait and cleanup have separate lifetimes.
+An actual cleanup result can arrive after the caller's timeout.
+
+After proven core cleanup, the owned resolver runs on the JavaScript thread.
+It removes event-loop references from retained ThreadsafeFunctions.
+After successful removal, it releases obsolete callback and core holders.
+The terminal result and deadlines remain available.
+Removing an event-loop reference alone does not abort or collect a callback.
+A callback-release failure or unproven cleanup retains ownership and can keep the process alive.
+
+A valid pre-start stop is terminal.
+Later registration and start calls fail.
+Metrics remain unavailable after stop or accepted startup failure.
+Serialize lifecycle and registration calls on the same instance.
+Timeout requires application- or supervisor-owned process termination, even after late cleanup.
+The SDK never kills the process.
+
+This contract covers core-owned execution, not every JavaScript task.
+Independent Clients, providers, and provider token-refresh work keep their separate lifetimes.
+The global orchestration-handler map also remains unchanged.
+See the [lifecycle guide](user-guide.md#runtime-lifecycle) for argument
 validation, errors, and release prerequisites.
 
 ### Platform-Specific Binary

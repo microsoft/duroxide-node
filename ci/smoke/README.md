@@ -19,10 +19,10 @@ back to the local `.node` binary when run from the repo.
 | `run-local.sh` / `.ps1`  | Install from local tarballs (pre-publish).      |
 | `run-registry.sh` / `.ps1` | Install from npm registry (post-publish).     |
 
-The launchers copy both the smoke script and its provenance helper. Verification
-matches the loader's native class identities instead of selecting the first
-cached addon. An installed smoke must resolve a declared Duroxide platform
-subpackage at the SDK's version, with no lifecycle instrumentation exports.
+The launchers copy both the smoke script and its provenance helper.
+Verification matches the loader's native class identities, not the first cached addon.
+The installed smoke must resolve a declared Duroxide platform subpackage at the SDK's version.
+That package must not expose lifecycle instrumentation.
 
 ## Parity
 
