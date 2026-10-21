@@ -31,6 +31,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SQLite-only real-wrapper lifecycle coverage, feature-gated provider/fault controls,
   ordered race repetitions, isolated held-provider probes, and production-export checks.
 
+## [0.2.2] - 2026-10-21
+
+### Changed
+
+- **Bumped `duroxide-pg` dependency** — `0.1.36` → `0.1.37`.
+
 ## [0.2.1] - 2026-10-12
 
 ### Changed
