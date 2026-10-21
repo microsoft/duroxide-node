@@ -3,39 +3,26 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { createHash } = require('node:crypto');
-const { readFileSync } = require('node:fs');
 const path = require('node:path');
-const { spawn, spawnSync } = require('node:child_process');
-const { createInterface } = require('node:readline');
 const { performance } = require('node:perf_hooks');
 const { SqliteProvider, Client, Runtime } = require('../lib/duroxide.js');
+const { nativeProvenance } = require('../ci/smoke/native-provenance.cjs');
+const { startProbe } = require('./helpers/lifecycle-probe.cjs');
+const {
+  diagnostic, knownQuiescentCoreFailure, retiredState,
+  shutdownTiming, assertShutdownTiming, orderedRaceAttempt,
+} = require('./helpers/lifecycle-oracles.cjs');
 
 const root = path.resolve(__dirname, '..');
-const nativePath = Object.keys(require.cache).find(file => file.endsWith('.node'));
-assert.ok(nativePath?.startsWith(root + path.sep), 'tests require the freshly built local native module');
-const native = require(nativePath);
 const instrumented = process.env.DUROXIDE_LIFECYCLE_TEST_HOOKS === '1';
+const { native, provenance } = nativeProvenance(root, {
+  instrumented, manifestPath: process.env.DUROXIDE_NATIVE_MANIFEST,
+});
 const SECRET = 'Password=lifecycle-secret-sentinel;Host=private-sentinel';
 const MAX_GRACE_MS = Number(((2n ** 64n) - 1n) / 1_000_000n) - 5000;
 
-function diagnostic(category, incomplete = false) {
-  return error => {
-    assert.ok(error instanceof Error);
-    assert.match(error.message, new RegExp(category));
-    assert.ok(!error.message.includes(SECRET));
-    assert.ok(!error.message.includes('sentinel'));
-    if (incomplete) {
-      assert.match(error.message, /cleanup.*incomplete/);
-      assert.match(error.message, /terminate the process/);
-    }
-    if (category === 'lifecycle_shutdown_failed') {
-      assert.match(error.message, /cleanup completed and is quiescent/);
-      assert.doesNotMatch(error.message, /terminate the process/);
-    }
-    return true;
-  };
-}
+const hookTest = (name, body) => test(`[instrumented] ${name}`, { skip: !instrumented }, body);
+const record = (name, value) => console.log(`${name} ${Buffer.from(JSON.stringify(value)).toString('base64')}`);
 
 async function fixture(options) {
   const provider = await SqliteProvider.inMemory();
@@ -43,24 +30,13 @@ async function fixture(options) {
   return { provider, runtime, hooks: instrumented ? native._lifecycleTestHooks(runtime._native) : null };
 }
 
-function retired(hooks, forced, rollback = false) {
-  const state = JSON.parse(hooks.snapshot());
-  assert.equal(state.active, 0);
-  assert.equal(state.cleanupActive, 0);
-  assert.equal(state.started, state.completed);
-  if (rollback) assert.ok(state.coordinators >= 1 && state.coordinators <= 2);
-  else assert.equal(state.coordinators, 1);
-  if (forced !== undefined) assert.equal(state.forceRequests, forced ? 1 : 0);
+function retired(hooks, options) {
+  retiredState(JSON.parse(hooks.snapshot()), options);
 }
 
 test('native provenance and production export boundary', () => {
-  assert.equal(typeof native._lifecycleTestHooks === 'function', instrumented);
-  assert.equal(typeof native.LifecycleTestHooks === 'function', instrumented);
-  console.log('LIFECYCLE_NATIVE ' + JSON.stringify({
-    path: nativePath,
-    sha256: createHash('sha256').update(readFileSync(nativePath)).digest('hex'),
-    instrumented,
-  }));
+  console.log('LIFECYCLE_NATIVE ' + JSON.stringify(provenance));
+  record('LIFECYCLE_NATIVE_RECORD', provenance);
 });
 
 test('invalid durations preserve registration, startup, and repeated-stop ownership', async () => {
@@ -78,6 +54,31 @@ test('invalid durations preserve registration, startup, and repeated-stop owners
   await assert.rejects(runtime.shutdown(Number.MAX_SAFE_INTEGER), diagnostic('lifecycle_invalid_timeout'));
   assert.equal(await runtime.shutdown(), undefined);
   if (hooks) retired(hooks);
+});
+
+test('direct-native negative integers do not consume registered work or stop ownership', async () => {
+  const { runtime, provider, hooks } = await fixture();
+  const client = new Client(provider);
+  runtime.registerActivity('NativeNegativeActivity', async (_, input) => `original:${input}`);
+  runtime.registerOrchestration('NativeNegativeFlow', function* (context, input) {
+    return yield context.scheduleActivity('NativeNegativeActivity', input);
+  });
+  const rejectsNative = value => assert.rejects(
+    async () => runtime._native.shutdown(value), diagnostic('lifecycle_invalid_timeout'));
+  for (const value of [-1, -1000, -Number.MAX_SAFE_INTEGER]) await rejectsNative(value);
+  await runtime.start();
+  try {
+    await rejectsNative(-1);
+    assert.notEqual(runtime.metricsSnapshot(), null);
+    await client.startOrchestration('native-negative-first', 'NativeNegativeFlow', 'before-stop');
+    const result = await client.waitForOrchestration('native-negative-first', 5000);
+    assert.equal(result.status, 'Completed');
+    assert.equal(result.output, 'original:before-stop');
+  } finally { await runtime.shutdown(100); }
+  await rejectsNative(-1);
+  assert.equal(await runtime._native.shutdown(0), undefined);
+  assert.equal(await runtime.shutdown(), undefined);
+  if (hooks) retired(hooks, { executionWitness: true });
 });
 
 test('maximum representable default-total boundary is checked on no-work and repeated stop', async () => {
@@ -98,6 +99,46 @@ test('pre-start shutdown is a terminal no-work success', async () => {
   assert.equal(runtime.metricsSnapshot(), null);
 });
 
+for (const typed of [false, true]) {
+  test(`rejected ${typed ? 'typed' : 'raw'} registrations cannot replace live handlers or shadow plain fallback`, async () => {
+    const { runtime: live, provider } = await fixture();
+    const terminal = new Runtime(provider);
+    const client = new Client(provider);
+    const suffix = typed ? 'Typed' : 'Raw';
+    const plain = `RegistrationOriginal${suffix}`;
+    const versioned = `RegistrationVersioned${suffix}`;
+    const fallback = `RegistrationFallback${suffix}`;
+    const register = typed ? 'registerOrchestrationTyped' : 'registerOrchestration';
+    const registerVersioned = typed ? 'registerOrchestrationVersionedTyped' : 'registerOrchestrationVersioned';
+    live[register](plain, function* (_, input) { return `plain:${input}`; });
+    live[registerVersioned](versioned, '1.0.0', function* (_, input) { return `versioned:${input}`; });
+    live[register](fallback, function* (_, input) { return `fallback:${input}`; });
+    await terminal.shutdown(0);
+    await live.start();
+    try {
+      const replacement = function* () { return 'rejected-replacement'; };
+      assert.throws(() => terminal[register](plain, replacement), /lifecycle_terminal/);
+      assert.throws(() => terminal[registerVersioned](versioned, '1.0.0', replacement), /lifecycle_terminal/);
+      assert.throws(() => terminal[registerVersioned](fallback, '1.0.0', replacement), /lifecycle_terminal/);
+      for (const [name, expected, version] of [
+        [plain, 'plain:fresh', undefined],
+        [versioned, 'versioned:fresh', '1.0.0'],
+        [fallback, 'fallback:fresh', '1.0.0'],
+      ]) {
+        const id = `rejected-registration-${name}`;
+        if (version) await client.startOrchestrationVersioned(id, name, 'fresh', version);
+        else await client.startOrchestration(id, name, 'fresh');
+        const result = await client.waitForOrchestration(id, 5000);
+        assert.equal(result.status, 'Completed');
+        assert.equal(result.output, expected, `${name} must resolve its original handler after rejection`);
+      }
+    } finally {
+      await live.shutdown(100);
+      await terminal.shutdown(0);
+    }
+  });
+}
+
 test('fallible preparation rejects invalid options without an escaping panic', async () => {
   const { runtime } = await fixture({ sessionIdleTimeoutMs: 0 });
   await assert.rejects(runtime.start(), diagnostic('lifecycle_start_failed'));
@@ -107,13 +148,12 @@ test('fallible preparation rejects invalid options without an escaping panic', a
 });
 
 for (const scenario of ['registry-invalid', 'registry-descending']) {
-  test(`pre-core startup failure is ordinary and retained: ${scenario}`, () => {
-    const child = spawnSync(process.execPath, [path.join(__dirname, 'fixtures', 'lifecycle-probe.cjs'), scenario], {
-      cwd: root, encoding: 'utf8', timeout: 5000, env: process.env,
-    });
-    assert.equal(child.error, undefined, child.error?.message);
-    assert.equal(child.status, 0, child.stdout + child.stderr);
-    assert.match(child.stdout, /REGISTRY_FAILURE_RETAINED/);
+  test(`pre-core startup failure is ordinary and retained: ${scenario}`, async () => {
+    const probe = startProbe(scenario);
+    try {
+      await probe.successfulExit(5000);
+      assert.ok(probe.messages.some(message => message.phase === 'REGISTRY_FAILURE_RETAINED'), probe.describe());
+    } finally { await probe.dispose(); }
   });
 }
 
@@ -135,11 +175,11 @@ test('idle shutdown short-circuits long grace and preserves successful shapes', 
   assert.ok(performance.now() - start < 2000);
   assert.equal(await runtime.shutdown(0), undefined);
   await assert.rejects(runtime.start(), diagnostic('lifecycle_terminal'));
-  if (hooks) retired(hooks, false);
+  if (hooks) retired(hooks, { forced: false });
 });
 
-test('SQLite activity and orchestration run through the unchanged public API', async () => {
-  const { runtime, provider } = await fixture();
+test('SQLite public work and independent provider/client lifetimes survive worker shutdown', async () => {
+  const { runtime, provider, hooks } = await fixture();
   const client = new Client(provider);
   runtime.registerActivity('LifecycleEcho', async (_, input) => input);
   runtime.registerOrchestration('LifecycleEchoFlow', function* (context, input) {
@@ -154,6 +194,17 @@ test('SQLite activity and orchestration run through the unchanged public API', a
   } finally {
     await runtime.shutdown(100);
   }
+  if (hooks) retired(hooks, { executionWitness: true });
+  assert.equal((await client.waitForOrchestration('lifecycle-echo', 5000)).output, 'hello');
+  const replacement = new Runtime(provider);
+  replacement.registerOrchestration('LifecycleIndependentProvider', function* (_, input) { return input; });
+  await replacement.start();
+  try {
+    await client.startOrchestration('lifecycle-replacement', 'LifecycleIndependentProvider', 'still-open');
+    const result = await client.waitForOrchestration('lifecycle-replacement', 5000);
+    assert.equal(result.status, 'Completed');
+    assert.equal(result.output, 'still-open');
+  } finally { await replacement.shutdown(100); }
 });
 
 for (const typed of [false, true]) {
@@ -193,11 +244,11 @@ for (const typed of [false, true]) {
       await runtime.shutdown(100);
     }
     assert.equal(await runtime.shutdown(0), undefined);
-    if (hooks) retired(hooks);
+    if (hooks) retired(hooks, { executionWitness: true });
   });
 }
 
-test('partial-startup failure retains descendants until actual rollback', { skip: !instrumented }, async () => {
+hookTest('partial-startup failure retains descendants until actual rollback', async () => {
   const { runtime, hooks } = await fixture();
   hooks.hold('partial-startup');
   hooks.hold('blocking-provider');
@@ -215,132 +266,109 @@ test('partial-startup failure retains descendants until actual rollback', { skip
     hooks.release('partial-startup');
     hooks.release('blocking-provider');
   }
-  await assert.rejects(runtime.shutdown(0), diagnostic('lifecycle_shutdown_failed'));
-  await assert.rejects(runtime.shutdown(30_000), diagnostic('lifecycle_shutdown_failed'));
-  retired(hooks, undefined, true);
+  await assert.rejects(runtime.shutdown(0), knownQuiescentCoreFailure);
+  await assert.rejects(runtime.shutdown(30_000), knownQuiescentCoreFailure);
+  retired(hooks, { rollback: true, executionWitness: true });
 });
 
-test('contained operational failure is preserved by repeated real shutdown calls', { skip: !instrumented }, async () => {
+hookTest('contained operational failure is preserved by repeated real shutdown calls', async () => {
   const { runtime, hooks } = await fixture();
   hooks.hold('worker');
   hooks.fail('worker', SECRET);
   await runtime.start();
   await hooks.waitEntered('worker');
   hooks.release('worker');
-  await assert.rejects(runtime.shutdown(100), diagnostic('lifecycle_shutdown_failed'));
-  await assert.rejects(runtime.shutdown(30_000), diagnostic('lifecycle_shutdown_failed'));
-  retired(hooks, undefined, true);
+  await assert.rejects(runtime.shutdown(100), knownQuiescentCoreFailure);
+  await assert.rejects(runtime.shutdown(30_000), knownQuiescentCoreFailure);
+  retired(hooks, { rollback: true, executionWitness: true });
 });
 
-test('cancellation-safe provider fetch retires without waiting for its gate', { skip: !instrumented }, async () => {
+hookTest('cancellation-safe provider fetch retires without waiting for its gate', async () => {
   const { runtime, hooks } = await fixture();
   hooks.hold('provider');
   await runtime.start();
   await hooks.waitEntered('provider');
   try {
     await runtime.shutdown(1000);
-    retired(hooks, false);
+    retired(hooks, { forced: false, executionWitness: true });
   } finally {
     hooks.release('provider');
   }
 });
 
 for (const force of [false, true]) {
-  test(`ordered ${force ? 'force-before-retirement' : 'retirement-before-force'} 100 times`, { skip: !instrumented }, async () => {
+  hookTest(`ordered ${force ? 'force-before-retirement' : 'retirement-before-force'} 100 times`, async () => {
     for (let iteration = 0; iteration < 100; iteration++) {
       const { runtime, hooks } = await fixture();
-      hooks.hold('blocking-provider');
-      hooks.hold(force ? 'force' : 'coordinator');
-      await runtime.start();
-      await hooks.waitEntered('blocking-provider');
-      const stop = runtime.shutdown(force ? 0 : 30_000);
-      try {
-        await hooks.waitEntered(force ? 'force' : 'coordinator');
-        assert.ok(JSON.parse(hooks.snapshot()).active > 0);
-      } finally {
-        hooks.release('blocking-provider');
-        hooks.release(force ? 'force' : 'coordinator');
-      }
-      assert.equal(await stop, undefined);
-      assert.equal(await runtime.shutdown(), undefined);
-      retired(hooks, force);
+      await orderedRaceAttempt(runtime, hooks, force, iteration);
     }
   });
 }
 
 test('retained completed Runtime does not prevent natural process exit', async () => {
-  const child = spawn(process.execPath, [path.join(__dirname, 'fixtures', 'lifecycle-probe.cjs'), 'exit'], {
-    cwd: root, stdio: ['ignore', 'pipe', 'pipe'], env: process.env,
-  });
-  let output = '';
-  child.stdout.on('data', chunk => { output += chunk; });
-  child.stderr.on('data', chunk => { output += chunk; });
-  let watchdog;
-  const exited = new Promise(resolve => child.once('exit', resolve));
+  const probe = startProbe('exit');
   try {
-    await new Promise((resolve, reject) => {
-      watchdog = setTimeout(() => reject(new Error('completed runtime kept the process alive')), 3000);
-      child.once('error', reject);
-      child.once('exit', code => {
-        try {
-          assert.equal(code, 0, output);
-          assert.match(output, /EXIT_READY/);
-          resolve();
-        } catch (error) { reject(error); }
-      });
-    });
-  } finally {
-    clearTimeout(watchdog);
-    if (child.exitCode === null && child.signalCode === null) child.kill();
-    await exited;
-  }
+    await probe.successfulExit(3000);
+    assert.ok(probe.messages.some(message => message.phase === 'EXIT_READY'), probe.describe());
+  } finally { await probe.dispose(); }
 });
 
 for (const scenario of ['late', 'retained']) {
-  test(`isolated non-yielding provider timeout: ${scenario}`, { skip: !instrumented }, async () => {
-    const child = spawn(process.execPath, ['--expose-gc', path.join(__dirname, 'fixtures', 'lifecycle-probe.cjs'), scenario], {
-      cwd: root, stdio: ['pipe', 'pipe', 'pipe'], env: process.env,
-    });
-    let stderr = '';
-    child.stderr.on('data', chunk => { stderr += chunk; });
-    let watchdog;
-    const lines = createInterface({ input: child.stdout });
-    const exited = new Promise(resolve => child.once('exit', resolve));
+  hookTest(`isolated non-yielding provider timeout: ${scenario}`, async () => {
+    const probe = startProbe(scenario, { input: true });
     try {
-      await new Promise((resolve, reject) => {
-        watchdog = setTimeout(() => reject(new Error('probe did not start')), 15_000);
-        child.once('error', reject);
-        child.once('exit', code => reject(new Error(`probe exited ${code}: ${stderr}`)));
-        lines.on('line', line => {
-          if (!line.startsWith('LIFECYCLE_PROBE ')) return;
-          try {
-            const message = JSON.parse(line.slice('LIFECYCLE_PROBE '.length));
-            if (message.phase === 'STOPPING') {
-              clearTimeout(watchdog);
-              watchdog = setTimeout(() => reject(new Error('default shutdown exceeded seven seconds')), 7000);
-            } else if (message.phase === 'TIMED_OUT') {
-              clearTimeout(watchdog);
-              watchdog = setTimeout(() => reject(new Error('late cleanup/retention evidence missing')), 3000);
-              assert.ok(message.elapsedMs >= (scenario === 'late' ? 6000 : 5000));
-              assert.ok(message.elapsedMs < (scenario === 'late' ? 7000 : 6000));
-              assert.ok(message.repeatedMs < 1000);
-              child.stdin.write(scenario === 'late' ? 'release\n' : 'retain\n');
-            } else if (message.phase === 'RECLAIMED' || message.phase === 'RETAINED') {
-              assert.equal(message.phase, scenario === 'late' ? 'RECLAIMED' : 'RETAINED');
-              resolve();
-            } else if (message.phase === 'FAILED') {
-              reject(new Error(message.error));
-            }
+      await probe.next('STOPPING', 15_000);
+      const message = await probe.next('TIMED_OUT', shutdownTiming(scenario).delivery);
+      assertShutdownTiming(scenario, message);
+      probe.child.stdin.write(scenario === 'late' ? 'release\n' : 'retain\n');
+      const completed = await probe.next(scenario === 'late' ? 'RECLAIMED' : 'RETAINED', 3000);
+      record('LIFECYCLE_PROBE_RECORD', { scenario, ...message, finalPhase: completed.phase });
+    } catch (error) {
+      throw new Error(probe.describe(), { cause: error });
+    } finally { await probe.dispose(); }
+  });
+}
 
-          } catch (error) { reject(error); }
-        });
-      });
-    } finally {
-      clearTimeout(watchdog);
-      lines.close();
-      child.stdin.destroy();
-      if (child.exitCode === null && child.signalCode === null) child.kill();
-      await exited;
+hookTest('incomplete cleanup keeps the event loop live without stdin or referenced timers', async () => {
+  const probe = startProbe('incomplete-liveness');
+  try {
+    await probe.next('STOPPING', 15_000);
+    const message = await probe.next('TIMED_OUT', shutdownTiming('retained').delivery);
+    assertShutdownTiming('retained', message);
+    for (let pulse = 1; pulse <= 3; pulse++) {
+      const alive = await probe.next('ALIVE', 2000);
+      assert.equal(alive.pulse, pulse);
+      assert.ok(alive.state.active > 0);
+      assert.ok(alive.state.started > 0);
+      assert.equal(alive.state.coordinators, 1);
     }
+    record('LIFECYCLE_PROBE_RECORD', { scenario: 'incomplete-liveness', ...message, livePulses: 3 });
+  } catch (error) {
+    throw new Error(probe.describe(), { cause: error });
+  } finally { await probe.dispose(); }
+});
+
+test('activity-only self-capturing callbacks collect after successful shutdown in a live process', async () => {
+  const probe = startProbe('completed', { fixture: 'lifecycle-collection-probe.cjs' });
+  try {
+    const result = await probe.next('COLLECTION', 10_000);
+    assert.ok(result.controlCollected);
+    assert.ok(result.capturedCollected);
+    record('LIFECYCLE_PROBE_RECORD', result);
+    await probe.successfulExit(3000);
+  } finally { await probe.dispose(); }
+});
+
+for (const scenario of ['quiescent-failure', 'late', 'late-unobserved']) {
+  hookTest(`activity-only callbacks collect after ${scenario} cleanup`, async () => {
+    const probe = startProbe(scenario, { fixture: 'lifecycle-collection-probe.cjs' });
+    try {
+      const result = await probe.next('COLLECTION', 15_000);
+      assert.ok(result.controlCollected);
+      assert.ok(result.capturedCollected);
+      if (scenario.startsWith('late')) assert.ok(result.retainedWhileIncomplete);
+      record('LIFECYCLE_PROBE_RECORD', result);
+      await probe.successfulExit(3000);
+    } finally { await probe.dispose(); }
   });
 }

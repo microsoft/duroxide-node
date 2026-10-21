@@ -4,9 +4,16 @@
 const assert = require('node:assert/strict');
 const { createInterface } = require('node:readline');
 const { performance } = require('node:perf_hooks');
+const path = require('node:path');
 const { SqliteProvider, Runtime } = require('../../lib/duroxide.js');
-const native = require(Object.keys(require.cache).find(file => file.endsWith('.node')));
+const { nativeProvenance } = require('../../ci/smoke/native-provenance.cjs');
+const { incompleteTimeout, retiredState } = require('../helpers/lifecycle-oracles.cjs');
+const { native, provenance } = nativeProvenance(path.resolve(__dirname, '..', '..'), {
+  instrumented: process.env.DUROXIDE_LIFECYCLE_TEST_HOOKS === '1',
+  manifestPath: process.env.DUROXIDE_NATIVE_MANIFEST,
+});
 const emit = (phase, detail = {}) => console.log('LIFECYCLE_PROBE ' + JSON.stringify({ phase, ...detail }));
+console.log('LIFECYCLE_NATIVE ' + JSON.stringify(provenance));
 
 async function main() {
   const scenario = process.argv[2];
@@ -52,19 +59,15 @@ async function main() {
   }
   const hooks = native._lifecycleTestHooks(runtime._native);
   hooks.hold('blocking-provider');
+  runtime.registerActivity('PendingCleanupActivity', async (_, value) => value);
   await runtime.start();
   await hooks.waitEntered('blocking-provider');
-  const input = createInterface({ input: process.stdin });
-  const command = new Promise(resolve => input.once('line', resolve));
+  const standalone = scenario === 'incomplete-liveness';
+  const input = standalone ? undefined : createInterface({ input: process.stdin });
+  const command = input && new Promise(resolve => input.once('line', resolve));
   emit('STOPPING');
   const start = performance.now();
-  await assert.rejects(runtime.shutdown(scenario === 'late' ? undefined : 0), error => {
-    assert.match(error.message, /lifecycle_shutdown_timed_out/);
-    assert.match(error.message, /cleanup.*incomplete/);
-    assert.match(error.message, /terminate the process/);
-    assert.ok(!error.message.includes('sentinel'));
-    return true;
-  });
+  await assert.rejects(runtime.shutdown(scenario === 'late' ? undefined : 0), incompleteTimeout);
   const elapsedMs = performance.now() - start;
   const repeated = performance.now();
   await assert.rejects(runtime.shutdown(30_000), error => {
@@ -76,6 +79,13 @@ async function main() {
   assert.ok(JSON.parse(hooks.snapshot()).active > 0);
   assert.equal(runtime.metricsSnapshot(), null);
   emit('TIMED_OUT', { elapsedMs, repeatedMs });
+  if (standalone) {
+    globalThis.retainedRuntime = runtime;
+    process.once('beforeExit', () => emit('PREMATURE_BEFORE_EXIT', { state: JSON.parse(hooks.snapshot()) }));
+    let pulse = 0;
+    setInterval(() => emit('ALIVE', { pulse: ++pulse, state: JSON.parse(hooks.snapshot()) }), 100).unref();
+    return;
+  }
   if (await command === 'retain') {
     runtime = null;
     global.gc();
@@ -96,11 +106,7 @@ async function main() {
       }
     }
     const state = JSON.parse(hooks.snapshot());
-    assert.equal(state.active, 0);
-    assert.equal(state.cleanupActive, 0);
-    assert.equal(state.started, state.completed);
-    assert.equal(state.coordinators, 1);
-    assert.equal(state.forceRequests, 1);
+    retiredState(state, { forced: true, executionWitness: true });
     await assert.rejects(runtime.start(), /lifecycle_terminal/);
     emit('RECLAIMED');
     input.close();

@@ -21,6 +21,7 @@ try {
   if ($LASTEXITCODE -ne 0) { throw "npm install failed ($LASTEXITCODE)" }
 
   Copy-Item $env:SMOKE_SCRIPT ./smoke.mjs
+  Copy-Item (Join-Path (Split-Path $env:SMOKE_SCRIPT) 'native-provenance.cjs') ./native-provenance.cjs
   node ./smoke.mjs
   if ($LASTEXITCODE -ne 0) { throw "node smoke.mjs failed ($LASTEXITCODE)" }
   Write-Host "[smoke] local smoke OK"

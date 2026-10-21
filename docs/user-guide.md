@@ -67,6 +67,12 @@ headroom. `shutdown(0)` requests immediate force, still with a five-second total
 The first stop fixes the deadlines; repeating it never grants a new budget.
 Success remains `undefined`; errors carry `lifecycle_start_failed`,
 `lifecycle_shutdown_timed_out`, or `lifecycle_shutdown_failed` categories.
+The `lifecycle_shutdown_failed` category alone is **not** cleanup proof. It covers
+known-quiescent core failures, loss of the native shutdown owner with unproven
+quiescence, and failure to release a Node callback's event-loop reference after
+core quiescence. The last category's message does not itself assert quiescence.
+Tests for known-quiescent core failures are specific to that outcome; neither
+generic failure-category checks nor task-count telemetry authorize release.
 Invalid non-finite, fractional, negative, unsafe-integer, or unsupported native
 durations reject without consuming registrations or accepting stop.
 Strings and `null` also reject; `undefined` means the omitted grace. Native
@@ -87,6 +93,17 @@ cancel the adapter-owned native cleanup future. Bounded waits and first-stop
 deadlines belong to this adapter; native Rust shutdown itself awaits cleanup
 without a total limit. Provider futures can be canceled under the provider's
 atomic acknowledgement and peek-lock recovery contract.
+
+Callback/core holders are separate from persistent shutdown results and deadlines.
+Only proven native quiescence permits their release on the JavaScript thread,
+including known-quiescent failures and actual late completion without a further
+shutdown call. This breaks obsolete activity callback/self-capture ownership
+cycles; merely unref'ing an event-loop handle is not callback collection.
+Unproven cleanup or a lost cleanup owner retains the graph and leaves the worker
+unusable. Application-held references and the pre-existing global orchestration
+handler map are outside this collection guarantee. Independent provider/client
+ownership is not disposed by stopping a worker, and late release never retracts
+the application's prior termination obligation.
 
 This complete example has no admitted work and can finish before grace:
 
@@ -111,6 +128,29 @@ For incomplete stop, setting an exit code alone may not terminate retained
 noncooperative work. Arrange termination in the application's supervisor policy;
 do not treat a caught error or successful late observation as permission to
 reuse the runtime. A finite grace cannot promise bounded forced cleanup.
+
+### Sizing the supervisor budget
+
+Size against the supervisor time **remaining when the first shutdown call is
+made**, not its original allocation:
+
+```text
+remaining outer time > grace + 5000 ms + other shutdown work + delivery/exit margin
+```
+
+For example, with 30 seconds actually remaining, a 30-second grace asks the SDK
+to observe cleanup for up to 35 seconds and cannot fit. An illustrative
+20-second grace gives a 25-second SDK observation budget and leaves five seconds
+for other work, scheduling, result delivery and process exit. Subtract time
+already spent before calling `shutdown`. If less than the fixed five-second
+allowance remains, `shutdown(0)` alone cannot make the SDK's timeout fit.
+
+Omission still means 1000 ms grace and 6000 ms total; zero grace still means
+5000 ms total. The first call fixes those deadlines, and repeated calls neither
+renew the budget nor retract a previous termination obligation. Native cleanup
+itself has no total bound and may remain pending indefinitely. The application's
+parent/supervisor termination policy must therefore fit outside these SDK
+observation budgets; the SDK supplies no process-kill or supervisor mechanism.
 
 ## Orchestration Patterns
 

@@ -16,22 +16,16 @@
 //     output === "Hello, World!".
 
 import { SqliteProvider, Client, Runtime } from 'duroxide';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join, sep } from 'node:path';
+import { dirname, join } from 'node:path';
+import { nativeProvenance } from './native-provenance.cjs';
 
 const require = createRequire(import.meta.url);
-const nativePath = Object.keys(require.cache).find(file => file.endsWith('.node') && file.includes('duroxide'));
-assert.ok(nativePath?.includes(`${sep}node_modules${sep}`), 'smoke must load the installed platform package');
-const native = require(nativePath);
-assert.equal('_lifecycleTestHooks' in native, false);
-assert.equal('LifecycleTestHooks' in native, false);
-console.log('[smoke] native=' + JSON.stringify({
-  path: nativePath, sha256: createHash('sha256').update(readFileSync(nativePath)).digest('hex'),
-}));
+const { provenance } = nativeProvenance(dirname(require.resolve('duroxide/package.json')), { installed: true });
+console.log('[smoke] native=' + JSON.stringify(provenance));
 
 const dir = mkdtempSync(join(tmpdir(), 'duroxide-smoke-'));
 const dbPath = join(dir, 'smoke.db');

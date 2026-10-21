@@ -83,6 +83,61 @@ jobs:
           name: binary-linux-x64-gnu
       - name: Run tests
         run: npm run test:all
+      - name: Stage isolated production lifecycle suite
+        run: node ci/stage-lifecycle.cjs . target/lifecycle-production/stage production
+      - name: Require production lifecycle and export boundary
+        run: node ci/run-lifecycle.cjs production target/lifecycle-production/stage
+      - name: Upload production lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lifecycle-production-evidence-linux-x64
+          path: |
+            target/lifecycle-production/stage/lifecycle-native.json
+            target/lifecycle-production/stage/lifecycle-results.json
+            target/lifecycle-production/stage/lifecycle.tap
+            target/lifecycle-production/stage/lifecycle.stderr.log
+          if-no-files-found: error
+
+  lifecycle-instrumented:
+    name: Instrumented lifecycle (isolated)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20
+      - name: Set up Rust from repository toolchain
+        run: |
+          test -f rust-toolchain.toml
+          rustup show active-toolchain
+          rustc --version --verbose
+      - name: Install dependencies
+        run: npm install --omit=optional --ignore-scripts --no-audit --no-fund --package-lock=false
+      # No fallback override: compatible published core APIs are a separate gate.
+      - name: Build isolated instrumented addon
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target/lifecycle-instrumented/cargo
+        run: >-
+          npx napi build --platform --features test-hooks --js false --dts bindings.d.ts
+          --cargo-flags="--locked" target/lifecycle-instrumented/native
+      - name: Stage matching source and native artifact
+        run: node ci/stage-lifecycle.cjs target/lifecycle-instrumented/native target/lifecycle-instrumented/stage instrumented
+      - name: Require every instrumented lifecycle case
+        run: node ci/run-lifecycle.cjs instrumented target/lifecycle-instrumented/stage
+      # Upload evidence only, never an instrumented binary-* packaging input.
+      - name: Upload instrumented lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lifecycle-instrumented-evidence-linux-x64
+          path: |
+            target/lifecycle-instrumented/stage/lifecycle-native.json
+            target/lifecycle-instrumented/stage/lifecycle-results.json
+            target/lifecycle-instrumented/stage/lifecycle.tap
+            target/lifecycle-instrumented/stage/lifecycle.stderr.log
+          if-no-files-found: error
 
   # ── Pack tarballs for smoke (local install simulation) ─────
   pack:

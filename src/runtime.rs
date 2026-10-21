@@ -7,7 +7,7 @@ use napi_derive::napi;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::watch;
+use tokio::sync::{oneshot, watch};
 
 use duroxide::runtime::OrchestrationHandler;
 use duroxide::runtime::{self, OrchestrationRegistry};
@@ -408,21 +408,41 @@ impl JsRuntime {
     #[napi(ts_return_type = "Promise<void>")]
     pub fn shutdown(&mut self, env: Env, timeout_ms: Option<i64>) -> Result<napi::JsObject> {
         let (grace_deadline, total_deadline) = shutdown_deadlines(timeout_ms)?;
+        self.shutdown_requested = true;
         if self.stop.is_none() {
-            if let Some(rt) = &self.inner {
-                rt.request_shutdown();
+            if let Some(runtime) = self.inner.take() {
+                runtime.request_shutdown();
                 let (completed, completion) = watch::channel(None);
-                let runtime = rt.clone();
-                napi::bindgen_prelude::spawn(async move {
-                    completed.send_replace(Some(runtime.shutdown_until(grace_deadline).await));
-                });
                 self.stop = Some(ShutdownOperation {
                     completion,
                     total_deadline,
                 });
+                let owned_runtime = runtime.clone();
+                let resources = ShutdownResources(Some(ExecutionResources {
+                    runtime,
+                    callbacks: std::mem::take(&mut self.callback_refs),
+                }));
+                let (native_completed, native_completion) = oneshot::channel();
+                napi::bindgen_prelude::spawn(async move {
+                    let result = owned_runtime.shutdown_until(grace_deadline).await;
+                    let _ = native_completed.send(result);
+                });
+                // This owned observer outlives ordinary bounded waits. Its resolver
+                // runs on the JS thread, including when cleanup completes late.
+                env.execute_tokio_future(
+                    async move {
+                        Ok(match native_completion.await {
+                            Ok(result) => result.map_err(ShutdownWaitError::Core),
+                            Err(_) => Err(ShutdownWaitError::OwnerLost),
+                        })
+                    },
+                    move |env, result| {
+                        completed.send_replace(Some(resources.complete(env, result)));
+                        Ok(())
+                    },
+                )?;
             }
         }
-        self.shutdown_requested = true;
         if self.inner.is_none() {
             self.activity_builders.clear();
             self.orchestration_names.clear();
@@ -432,7 +452,6 @@ impl JsRuntime {
         }
         let stop = self.stop.clone();
         let startup_error = self.startup_error;
-        let mut callbacks = self.callback_refs.clone();
         env.execute_tokio_future(
             async move {
                 Ok(match stop {
@@ -440,29 +459,11 @@ impl JsRuntime {
                     None => None,
                 })
             },
-            move |env, result| {
-                let quiescent = match result {
-                    None | Some(Ok(_)) => true,
-                    Some(Err(ShutdownWaitError::Core(error))) => error.is_quiescent(),
-                    Some(Err(_)) => false,
-                };
-                // Keep the core completion record, without keeping Node's event loop
-                // alive after retirement. N-API unref must run on the JS thread.
-                if quiescent {
-                    for callback in &mut callbacks {
-                        callback.unref(env).map_err(|_| {
-                            Error::from_reason(
-                                "lifecycle_shutdown_failed: callback event-loop reference release failed",
-                            )
-                        })?;
-                    }
-                }
-                match result {
-                    Some(result) => result.map_err(shutdown_error).and_then(|_| {
-                        startup_error.map_or(Ok(()), |error| Err(start_error(error)))
-                    }),
-                    None => startup_error.map_or(Ok(()), |error| Err(start_error(error))),
-                }
+            move |_, result| match result {
+                Some(result) => result
+                    .map_err(shutdown_error)
+                    .and_then(|_| startup_error.map_or(Ok(()), |error| Err(start_error(error)))),
+                None => startup_error.map_or(Ok(()), |error| Err(start_error(error))),
             },
         )
     }
@@ -485,10 +486,51 @@ fn start_error(error: runtime::RuntimeStartError) -> Error {
 
 #[derive(Clone)]
 struct ShutdownOperation {
-    completion: watch::Receiver<
-        Option<std::result::Result<runtime::ShutdownOutcome, runtime::RuntimeShutdownError>>,
-    >,
+    completion: watch::Receiver<Option<ShutdownResult>>,
     total_deadline: Instant,
+}
+
+type ShutdownResult = std::result::Result<runtime::ShutdownOutcome, ShutdownWaitError>;
+
+struct ExecutionResources {
+    runtime: Arc<runtime::Runtime>,
+    callbacks: Vec<ThreadsafeFunction<String, ErrorStrategy::Fatal>>,
+}
+
+struct ShutdownResources(Option<ExecutionResources>);
+
+impl ShutdownResources {
+    fn complete(mut self, env: &Env, result: ShutdownResult) -> ShutdownResult {
+        let quiescent = match result {
+            Ok(_) => true,
+            Err(ShutdownWaitError::Core(error)) => error.is_quiescent(),
+            Err(_) => false,
+        };
+        if quiescent {
+            if let Some(resources) = self.0.as_mut() {
+                for callback in &mut resources.callbacks {
+                    callback
+                        .unref(env)
+                        .map_err(|_| ShutdownWaitError::CallbackReleaseFailed)?;
+                }
+            }
+            if let Some(resources) = self.0.take() {
+                drop(resources.runtime);
+                drop(resources.callbacks);
+            }
+        }
+        result
+    }
+}
+
+impl Drop for ShutdownResources {
+    fn drop(&mut self) {
+        if let Some(resources) = self.0.take() {
+            // Owner loss, failed JS dispatch or an unproven core result cannot
+            // authorize release. Retain the graph for supervisor termination.
+            std::mem::forget(resources);
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -496,15 +538,16 @@ enum ShutdownWaitError {
     TimedOut,
     OwnerLost,
     Core(runtime::RuntimeShutdownError),
+    CallbackReleaseFailed,
 }
 
 impl ShutdownOperation {
-    async fn wait(mut self) -> std::result::Result<runtime::ShutdownOutcome, ShutdownWaitError> {
+    async fn wait(mut self) -> ShutdownResult {
         loop {
             {
                 let completed = self.completion.borrow_and_update();
                 if let Some(result) = *completed {
-                    return result.map_err(ShutdownWaitError::Core);
+                    return result;
                 }
                 if Instant::now() >= self.total_deadline {
                     return Err(ShutdownWaitError::TimedOut);
@@ -534,6 +577,9 @@ fn shutdown_error(error: ShutdownWaitError) -> Error {
         ShutdownWaitError::Core(error) => {
             Error::from_reason(format!("lifecycle_shutdown_failed: {error}"))
         }
+        ShutdownWaitError::CallbackReleaseFailed => Error::from_reason(
+            "lifecycle_shutdown_failed: callback event-loop reference release failed",
+        ),
     }
 }
 
