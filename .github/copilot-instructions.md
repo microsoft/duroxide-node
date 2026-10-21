@@ -172,7 +172,7 @@ Activities have no restrictions — they run once, result is cached.
 Release manifests must resolve `duroxide` and `duroxide-pg` from crates.io:
 ```toml
 duroxide = { version = "0.1.32", features = ["sqlite"] }
-duroxide-pg = "0.1.36"
+duroxide-pg = "0.1.37"
 ```
 
 Temporary local `[patch.crates-io]` sections or inline `path =` overrides are
