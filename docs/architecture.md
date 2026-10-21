@@ -250,7 +250,7 @@ not ship `[patch.crates-io]` sections or inline `path =` overrides:
 
 ```toml
 duroxide = { version = "0.1.32", features = ["sqlite"] }
-duroxide-pg = "0.1.36"
+duroxide-pg = "0.1.37"
 ```
 
 Temporary local path overrides may be useful during cross-repository
