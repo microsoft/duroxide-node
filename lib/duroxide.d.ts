@@ -321,7 +321,14 @@ export declare class Runtime {
   registerOrchestrationTyped<TIn>(name: string, fn: (ctx: OrchestrationContext, input: TIn) => Generator): void;
   registerOrchestrationVersioned(name: string, version: string, fn: (ctx: OrchestrationContext, input: any) => Generator): void;
   registerOrchestrationVersionedTyped<TIn>(name: string, version: string, fn: (ctx: OrchestrationContext, input: TIn) => Generator): void;
+  /** Start once and return after startup. Do not overlap lifecycle or registration calls. */
   start(): Promise<void>;
+  /**
+   * Stop permanently, including before start. Default grace is 1000 ms. Total waiting is grace + 5000 ms.
+   * Repeated calls keep the original deadlines and observe actual completion or errors.
+   * Timeout rejects while cleanup remains owned. The application or supervisor must terminate the process.
+   * timeoutMs must be a nonnegative safe integer within the native monotonic deadline range.
+   */
   shutdown(timeoutMs?: number): Promise<void>;
   metricsSnapshot(): JsMetricsSnapshot | null;
 }

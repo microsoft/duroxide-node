@@ -49,6 +49,115 @@ async function main() {
 main();
 ```
 
+## Runtime Lifecycle
+
+This section requires the **unreleased** adapter and a matching core lifecycle build.
+Current published packages and temporary local core overrides do not prove release readiness.
+
+Register handlers before the first `await runtime.start()`.
+Startup returns after activation, not after shutdown. Failures reject the Promise.
+Registry and preparation failures become ordinary `lifecycle_start_failed` errors.
+These include invalid or descending versions.
+Subsequent shutdown calls retain those startup errors.
+Version ordering and duplicate-registration policy do not change.
+Adapter error messages exclude panic payloads.
+This does not suppress Rust's separate process-wide panic-hook output.
+
+`await runtime.shutdown()` uses one second of grace plus five seconds of total headroom.
+`shutdown(0)` requests immediate force, with a five-second total.
+The first stop fixes the deadlines. Repeated calls never receive a new budget.
+Success remains `undefined`.
+Errors use `lifecycle_start_failed`, `lifecycle_shutdown_timed_out`, or `lifecycle_shutdown_failed`.
+
+**Quiescence** means that tracked core execution and cleanup have ended.
+The `lifecycle_shutdown_failed` category alone does **not** prove quiescence.
+It covers core failures after proven cleanup and loss of the native shutdown owner without proof of cleanup.
+It also covers failure to release a Node callback's event-loop reference after core cleanup.
+That callback-release error message does not itself assert quiescence.
+Tests for known-quiescent core failures apply only to that outcome.
+Neither a generic failure-category check nor task-count telemetry permits release.
+
+Non-finite, fractional, negative, unsafe-integer, or unsupported native durations fail validation.
+Validation failure does not consume registrations or accept stop.
+Strings and `null` also fail. `undefined` selects the omitted grace.
+Native validation extracts signed milliseconds and checks unsigned-nanosecond deadlines.
+The maximum grace interval is `floor((2^64 - 1) / 1_000_000) - 5000` milliseconds.
+It must also fit the platform's monotonic clock range.
+Validation still runs on unused runtimes and repeated calls.
+
+Stopping before start is terminal.
+Do not overlap lifecycle or registration calls on the same instance.
+Metrics return `null` after stop.
+Repeated shutdown can observe actual late completion, but a timeout permanently prevents reuse.
+The application or supervisor must still terminate the process.
+The SDK retains cleanup and never exits the process itself.
+
+This contract covers core-owned execution, not arbitrary unregistered JavaScript continuations.
+It does not add the .NET adapter's additional foreign-continuation barrier.
+Independent provider-owned background work has a separate lifetime.
+Ignoring the returned Promise does not cancel the adapter-owned native cleanup future.
+The adapter owns bounded waits and first-stop deadlines.
+Native Rust shutdown waits for cleanup without a total limit.
+Provider futures can be canceled under the provider's atomic acknowledgment and peek-lock recovery contract.
+
+Callback and core holders are separate from persistent shutdown results and deadlines.
+Only proven native quiescence permits their release on the JavaScript thread.
+This includes known-quiescent failures and actual late completion without another shutdown call.
+Release breaks obsolete activity callbacks' self-capture cycles.
+Removing an event-loop reference alone does not collect the callback.
+Unproven cleanup, a lost cleanup owner, or a callback-release failure retains ownership and leaves the worker unusable.
+
+Application-held references and the global orchestration-handler map are outside this collection guarantee.
+Stopping a worker does not dispose independent provider or Client ownership.
+Late release never removes the application's prior termination requirement.
+
+This complete example has no admitted work and can finish before grace:
+
+```javascript
+const { SqliteProvider, Runtime } = require('duroxide');
+
+async function main() {
+  const provider = await SqliteProvider.inMemory();
+  const runtime = new Runtime(provider);
+  await runtime.start();
+  await runtime.shutdown();      // 1000 ms grace, 6000 ms total; can finish early
+  await runtime.shutdown(0);     // Observes the same actual completion, not a new stop
+  console.log(runtime.metricsSnapshot()); // null: stopped worker, not active metrics
+}
+main().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});
+```
+
+After an incomplete stop, setting an exit code alone might not terminate retained work.
+Arrange process termination through the application's supervisor policy.
+A caught error or successful late observation does not permit runtime reuse.
+A finite grace does not guarantee bounded forced cleanup.
+
+### Sizing the supervisor budget
+
+Use the supervisor time **remaining at the first shutdown call**, not its original allocation:
+
+```text
+remaining outer time > grace + 5000 ms + other shutdown work + delivery/exit margin
+```
+
+For example, assume that 30 seconds remain.
+A 30-second grace requests up to 35 seconds of waiting and cannot fit.
+A 20-second grace gives the SDK 25 seconds to wait.
+That leaves five seconds for other work, scheduling, result delivery, and process exit.
+Subtract time already spent before calling `shutdown`.
+If less than five seconds remain, `shutdown(0)` alone cannot make the SDK's timeout fit.
+
+Omitted grace still means 1000 ms grace and 6000 ms total.
+Zero grace still means 5000 ms total.
+The first call fixes those deadlines.
+Repeated calls cannot renew the budget or remove a previous termination requirement.
+Native cleanup has no total bound and can remain pending indefinitely.
+The application's parent or supervisor must allow time for process termination outside the SDK wait budget.
+The SDK does not provide a process-kill or supervisor mechanism.
+
 ## Orchestration Patterns
 
 ### Sequential Steps
