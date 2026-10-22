@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **CI runs on patched Node.js** — build, test and pack use Node.js `24.22.1`; the
+  platform smoke tests use `22.23.4`. Both are the October 2026 security releases.
+  CI used Node.js 20 before, which is end-of-life and gets no security fixes.
+
 ## [0.2.2] - 2026-10-21
 
 ### Changed
