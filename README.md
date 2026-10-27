@@ -155,6 +155,16 @@ const provider = await PostgresProvider.connectWithSchema(
 );
 ```
 
+#### Upgrading to 0.2.4
+
+This release uses `duroxide-pg` 0.1.38. Connecting applies migration `0026`,
+including a unique index on `instance_locks(lock_token)`. The index is not
+built concurrently and blocks writes to that table while it builds.
+
+Qualify the database upgrade and rollback before deployment. An older native
+build can reject an unknown applied migration. Reinstalling an older npm package
+does not undo a database migration. The JavaScript API is unchanged.
+
 ### PostgreSQL with Microsoft Entra ID (Azure)
 
 For Azure Database for PostgreSQL Flexible Server, use Entra ID token authentication instead of a password:
