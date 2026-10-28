@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-10-27
+
+### Changed
+
+- Require `duroxide-pg` 0.1.38. PostgreSQL connections apply migration `0026`,
+  which replaces the renewal and acknowledge procedures and adds a unique
+  index on `instance_locks(lock_token)`. The index is not built concurrently;
+  it blocks writes to that table while it builds. Check database upgrade and
+  rollback compatibility before deployment. An older native build can reject
+  a database with a migration it does not know.
+
+### Fixed
+
+- Adopt the provider's [lock-safety fix](https://github.com/microsoft/duroxide-pg/pull/44).
+  It fixes deadlocks between renewal and fetch, acknowledge or abandon, prevents
+  renewal from reviving an expired lease or shortening a live one, and rejects
+  acknowledge after another worker has taken over. Renewal retries transient
+  errors. There is no JavaScript API change.
+
 ## [0.2.3] - 2026-10-21
 
 ### Changed
