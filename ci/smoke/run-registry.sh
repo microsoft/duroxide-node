@@ -36,5 +36,6 @@ for i in $(seq 1 "$attempts"); do
 done
 
 cp "$SMOKE_SCRIPT" ./smoke.mjs
+cp "$(dirname "$SMOKE_SCRIPT")/native-provenance.cjs" ./native-provenance.cjs
 node ./smoke.mjs
 echo "[smoke] registry smoke OK"

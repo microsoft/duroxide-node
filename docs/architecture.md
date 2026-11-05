@@ -377,7 +377,9 @@ runtime.registerOrchestration('Parent', function* (ctx, input) {
 });
 ```
 
-This is the **only fundamental limitation** vs the Rust core — all other features (typed APIs, cancellation propagation, etc.) have full parity. See the `async_blocks.test.js` tests for 12 comprehensive examples of this pattern.
+See `async_blocks.test.js` for examples of this pattern. Lifecycle ownership is
+also a boundary: this adapter does not track arbitrary JavaScript continuations
+or provide the .NET adapter's additional foreign-retirement barrier.
 
 ### select/race Supports 2 Tasks
 
@@ -389,7 +391,80 @@ File-based SQLite can hit "database is locked" errors under concurrent orchestra
 
 ### Runtime Shutdown
 
-`Runtime.shutdown(timeoutMs)` returns as soon as all runtime work has stopped. `timeoutMs` (default 1000) is the longest it waits for in-flight work before cancelling the rest; it is not a fixed delay.
+In the unreleased lifecycle, `Runtime.shutdown(timeoutMs)` remains a `Promise<void>`.
+It waits for actual core retirement within supplied grace plus 5000 ms.
+Omitted grace is 1000 ms. Idle execution can finish early.
+Zero requests immediate force. Force does not prove that cleanup ended.
+The first valid stop fixes both deadlines, including for repeated observations.
+
+The adapter stores the prepared core Arc before it awaits fallible startup.
+Startup failure, stop, and timeout do not discard cleanup ownership.
+One native cleanup future remains owned independently of bounded caller waits.
+Upstream core tracking includes native task destruction.
+Provider futures can be canceled under the provider's atomic acknowledgment and recovery contract.
+Repeated shutdown observes the same operation.
+It does not report success merely because the wrapper transferred its Arc.
+
+```mermaid
+flowchart TD
+    Stop["First valid stop: fix grace and total"] --> Cleanup["Keep one native cleanup operation"]
+    Stop --> Wait["Wait within the original total"]
+    Cleanup -->|Cleanup proven| Release["Release callback and core holders on the JavaScript thread"]
+    Cleanup -->|Cleanup unproven| Retain["Retain ownership"]
+    Release -->|Release fails| Retain
+    Wait -->|Completion published| Result["Resolve undefined or reject with an error"]
+    Wait -->|Total expires first| Timeout["Reject timeout; keep cleanup owned"]
+    Timeout --> Terminate["Application or supervisor must terminate the process"]
+```
+
+The caller's wait and cleanup have separate lifetimes.
+An actual cleanup result can arrive after the caller's timeout.
+
+After proven core cleanup, the owned resolver runs on the JavaScript thread.
+It removes event-loop references from retained ThreadsafeFunctions.
+After successful removal, it releases obsolete callback and core holders.
+The terminal result and deadlines remain available.
+Removing an event-loop reference alone does not abort or collect a callback.
+A callback-release failure or unproven cleanup retains ownership and can keep the process alive.
+
+A valid pre-start stop is terminal.
+Later registration and start calls fail.
+Metrics remain unavailable after stop or accepted startup failure.
+Serialize lifecycle and registration calls on the same instance.
+Timeout requires application- or supervisor-owned process termination, even after late cleanup.
+The SDK never kills the process.
+
+This contract covers core-owned execution, not every JavaScript task.
+Independent Clients, providers, and provider token-refresh work keep their separate lifetimes.
+The global orchestration-handler map also remains unchanged.
+See the [lifecycle guide](user-guide.md#runtime-lifecycle) for argument
+validation, errors, and release prerequisites.
+
+### Passive Stop Observation
+
+`Runtime` caches a receiver-only native source when it creates its wrapper.
+`stopObserver()` uses that source rather than borrowing the mutable native
+Runtime during startup or shutdown. Each observer owns metadata and one pending
+wait slot, not the Runtime, provider, or callback registry.
+
+The SDK publisher freezes the final state and detaches its live core receiver
+when the source ends. Reads use coherent status/closed metadata.
+Core retirement alone is not SDK source end. A wait delivers an unseen final
+state before `null`; local `close()` instead rejects pending and later use.
+
+Each wait owns cancellation metadata and an unreferenced observation
+ThreadsafeFunction. Settlement removes its AbortSignal listener and clears
+resolver/rejector fields. Registration rechecks reentrant state and closes any
+native handle returned after settlement. An old callback cannot settle a later
+wait on the same observer. Native delivery context remains valid through final
+access without joining worker cleanup.
+
+Only observation delivery is unreferenced early. Existing worker/shutdown
+callback release still requires its own cleanup proof.
+Native queued-delivery counters are not JavaScript Promise-settlement counts.
+Neither status, source end, nor these counters prove that an unregistered
+JavaScript continuation ended. See the
+[observer contract and example](user-guide.md#passive-stop-observation).
 
 ### Platform-Specific Binary
 

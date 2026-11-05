@@ -15,8 +15,14 @@ back to the local `.node` binary when run from the repo.
 | File                     | Purpose                                         |
 |--------------------------|-------------------------------------------------|
 | `smoke.mjs`              | Hello-world orchestration using `SqliteProvider`. |
+| `native-provenance.cjs`  | Verify the actual Duroxide binding, installed platform identity, production exports and SHA-256. |
 | `run-local.sh` / `.ps1`  | Install from local tarballs (pre-publish).      |
 | `run-registry.sh` / `.ps1` | Install from npm registry (post-publish).     |
+
+The launchers copy both the smoke script and its provenance helper.
+Verification matches the loader's native class identities, not the first cached addon.
+The installed smoke must resolve a declared Duroxide platform subpackage at the SDK's version.
+That package must not expose lifecycle instrumentation.
 
 ## Parity
 

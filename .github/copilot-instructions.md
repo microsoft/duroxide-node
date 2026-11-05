@@ -203,6 +203,6 @@ validation so CI and published packages use registry crates.
 - All JS callbacks run on the Node.js main thread (single-threaded)
 - No `async function*` generators — breaks replay model
 - SQLite may hit "database is locked" under concurrency (retried automatically)
-- `Runtime.shutdown(timeoutMs)` waits the full timeout (no short-circuit)
+- `Runtime.shutdown(timeoutMs)` uses grace plus five seconds of bounded waiting; idle work can finish early, and failures reject while retaining cleanup.
 - Platform-specific `.node` binary — cross-platform needs per-platform builds
 - Activity cancellation detection latency depends on `workerLockTimeoutMs` (default 30s → ~15s detection)

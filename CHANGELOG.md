@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add owned, metadata-only `RuntimeStopObserver` through `Runtime.stopObserver()`.
+  Retained stop/fault state supports independent AbortSignal waits, terminal
+  local close, and final-state delivery before source end. Observation does not
+  retain worker callbacks, keep Node alive by itself, or change shutdown
+  ownership, deadlines, and application policy.
+
+### Changed
+
+- Use fallible core startup and bounded shutdown waits while preserving `Promise<void>`.
+  Total waiting is the supplied grace plus five seconds.
+  Omitted grace is one second. Idle workers can finish early.
+  Invalid durations fail before ownership changes, including for no-work and repeated calls.
+  Repeated calls retain the original operation, errors, and deadlines.
+  They do not report success merely because the wrapper transferred its core.
+  Registry and preparation failures become ordinary retained startup errors.
+  Registration policy does not change.
+- Pre-start shutdown is terminal.
+  Start and registration calls fail after activation or stop.
+  Post-stop metrics remain unavailable.
+  Proven cleanup permits release of obsolete callback and core holders on the JavaScript thread.
+  The terminal result and deadlines remain available.
+- Timeouts require application- or supervisor-owned process termination while cleanup remains owned.
+  Later proven cleanup does not remove that requirement.
+  Finite grace does not guarantee bounded forced cleanup.
+  This adapter does not add .NET's foreign-continuation barrier or own detached application work.
+  Release requires a matching published core dependency.
+  Do not distribute local development overrides.
+
+### Tests
+
+- Add SQLite-only lifecycle coverage through the real wrapper.
+  Cases include feature-gated provider and fault controls, repeated ordered races,
+  isolated held-provider probes, and production-export checks.
+
 ## [0.2.4] - 2026-10-27
 
 ### Changed

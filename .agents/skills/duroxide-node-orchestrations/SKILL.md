@@ -327,7 +327,7 @@ npm run test:all            # Everything (52 tests)
 - Use `SqliteProvider.inMemory()` for fast isolated tests (SQLite smoketest only)
 - All PG tests need `DATABASE_URL` in `.env` (loaded by `dotenv`)
 - Each test file uses a separate PG schema for isolation
-- Use short `runtime.shutdown(100)` timeout — it waits the full duration
+- `runtime.shutdown(100)` permits 100 ms of grace plus five seconds of cleanup headroom. It can finish early; timeout rejects while cleanup remains owned and requires application/supervisor termination.
 - Set `RUST_LOG=info` to see traces in test output
 - Use `workerLockTimeoutMs: 2000` in tests needing fast activity cancellation detection
 

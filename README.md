@@ -25,6 +25,70 @@ Node.js/TypeScript SDK for the [Duroxide](https://github.com/microsoft/duroxide)
 - **SQLite & PostgreSQL** — pluggable storage backends
 - **KV store** — durable per-instance key-value state with snapshots and pruning via `ctx.getKvAllValues()` / `client.getKvAllValues()`
 
+## Runtime lifecycle (unreleased)
+
+`await runtime.start()` returns after startup. Core startup errors reject the Promise.
+`await runtime.shutdown(timeoutMs)` still resolves to `undefined` on success.
+The argument is a nonnegative safe-integer grace period in milliseconds.
+It must fit the native monotonic deadline range.
+Omitted grace is 1000 ms. Total waiting is grace plus 5000 ms.
+Idle work can finish early.
+At the first stop call, the supervisor's **remaining** time must exceed that total.
+Leave time for other shutdown work, result delivery, and process exit.
+Do not pass the entire outer budget as grace. See the
+[budget-sizing guidance](docs/user-guide.md#sizing-the-supervisor-budget).
+
+The first stop fixes both deadlines. Repeated calls observe the same operation.
+They can report timeout, operational errors, or actual late completion.
+Shutdown before start is terminal. Later start or registration calls fail.
+Metrics remain unavailable after stop.
+Serialize lifecycle and registration calls on each runtime.
+
+**Quiescence** means that tracked core execution and cleanup have ended.
+Only proven quiescence permits release of obsolete native callback and core holders.
+This includes quiescent failures and late cleanup without another caller.
+Stop results and the original deadlines remain available after release.
+Incomplete cleanup, unproven cleanup, or a callback-release failure retains ownership.
+
+A `lifecycle_shutdown_timed_out` rejection means cleanup is still owned and
+incomplete. Do not restart the worker.
+The application or supervisor must terminate the process, even if a later observation reports completion.
+The SDK does not terminate the process.
+`lifecycle_shutdown_failed` is an error category, not proof of quiescence.
+It also covers a lost cleanup owner and failure to release callback references after core cleanup.
+Do not infer release permission from that prefix.
+
+This adapter does not track arbitrary JavaScript continuations.
+It does not add the .NET SDK's additional managed foreign-retirement barrier.
+Independent provider and Client resources have their own lifetime.
+See the [lifecycle guide](docs/user-guide.md#runtime-lifecycle)
+for validation and an executable early-drain/repeated-stop example.
+
+These unreleased changes require a compatible core lifecycle release before distribution.
+A temporary local Cargo override provides development evidence, not a release dependency pin.
+
+### Passive stop observation
+
+`runtime.stopObserver()` returns an owned, metadata-only `RuntimeStopObserver`.
+Read `observer.state` first, then call `waitForChange(lastSeen, { signal })`.
+The states are `'NotRequested'`, `'Requested'`, and sticky `'Faulted'`.
+They report recorded stop/fault state, not readiness or completed cleanup.
+A late observer can already see a fault.
+
+Use one pending wait per observer. Independent consumers need separate observers.
+`AbortSignal` cancels only its wait, rejects with `signal.reason`, and permits retry.
+`close()` is terminal and idempotent; pending and later operations fail.
+A normal source end returns an unseen final state before `null`.
+Intermediate states can coalesce. Neither source end nor a settled Promise
+proves worker cleanup.
+
+Observation does not start/stop the worker, change shutdown deadlines, or retain
+its callbacks. Its native delivery does not keep Node alive by itself; the event
+loop must still run to deliver results. The existing limit on unregistered
+JavaScript continuations remains. See the
+[observer example](docs/user-guide.md#passive-stop-observation) for initial state,
+cancellation, local close, and normal source end.
+
 ## Quick Start
 
 ```bash

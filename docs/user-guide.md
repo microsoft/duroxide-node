@@ -49,6 +49,202 @@ async function main() {
 main();
 ```
 
+## Runtime Lifecycle
+
+This section requires the **unreleased** adapter and a matching core lifecycle build.
+Current published packages and temporary local core overrides do not prove release readiness.
+
+Register handlers before the first `await runtime.start()`.
+Startup returns after activation, not after shutdown. Failures reject the Promise.
+Registry and preparation failures become ordinary `lifecycle_start_failed` errors.
+These include invalid or descending versions.
+Subsequent shutdown calls retain those startup errors.
+Version ordering and duplicate-registration policy do not change.
+Adapter error messages exclude panic payloads.
+This does not suppress Rust's separate process-wide panic-hook output.
+
+`await runtime.shutdown()` uses one second of grace plus five seconds of total headroom.
+`shutdown(0)` requests immediate force, with a five-second total.
+The first stop fixes the deadlines. Repeated calls never receive a new budget.
+Success remains `undefined`.
+Errors use `lifecycle_start_failed`, `lifecycle_shutdown_timed_out`, or `lifecycle_shutdown_failed`.
+
+**Quiescence** means that tracked core execution and cleanup have ended.
+The `lifecycle_shutdown_failed` category alone does **not** prove quiescence.
+It covers core failures after proven cleanup and loss of the native shutdown owner without proof of cleanup.
+It also covers failure to release a Node callback's event-loop reference after core cleanup.
+That callback-release error message does not itself assert quiescence.
+Tests for known-quiescent core failures apply only to that outcome.
+Neither a generic failure-category check nor task-count telemetry permits release.
+
+Non-finite, fractional, negative, unsafe-integer, or unsupported native durations fail validation.
+Validation failure does not consume registrations or accept stop.
+Strings and `null` also fail. `undefined` selects the omitted grace.
+Native validation extracts signed milliseconds and checks unsigned-nanosecond deadlines.
+The maximum grace interval is `floor((2^64 - 1) / 1_000_000) - 5000` milliseconds.
+It must also fit the platform's monotonic clock range.
+Validation still runs on unused runtimes and repeated calls.
+
+Stopping before start is terminal.
+Do not overlap lifecycle or registration calls on the same instance.
+Metrics return `null` after stop.
+Repeated shutdown can observe actual late completion, but a timeout permanently prevents reuse.
+The application or supervisor must still terminate the process.
+The SDK retains cleanup and never exits the process itself.
+
+This contract covers core-owned execution, not arbitrary unregistered JavaScript continuations.
+It does not add the .NET adapter's additional foreign-continuation barrier.
+Independent provider-owned background work has a separate lifetime.
+Ignoring the returned Promise does not cancel the adapter-owned native cleanup future.
+The adapter owns bounded waits and first-stop deadlines.
+Native Rust shutdown waits for cleanup without a total limit.
+Provider futures can be canceled under the provider's atomic acknowledgment and peek-lock recovery contract.
+
+Callback and core holders are separate from persistent shutdown results and deadlines.
+Only proven native quiescence permits their release on the JavaScript thread.
+This includes known-quiescent failures and actual late completion without another shutdown call.
+Release breaks obsolete activity callbacks' self-capture cycles.
+Removing an event-loop reference alone does not collect the callback.
+Unproven cleanup, a lost cleanup owner, or a callback-release failure retains ownership and leaves the worker unusable.
+
+Application-held references and the global orchestration-handler map are outside this collection guarantee.
+Stopping a worker does not dispose independent provider or Client ownership.
+Late release never removes the application's prior termination requirement.
+
+This complete example has no admitted work and can finish before grace:
+
+```javascript
+const { SqliteProvider, Runtime } = require('duroxide');
+
+async function main() {
+  const provider = await SqliteProvider.inMemory();
+  const runtime = new Runtime(provider);
+  await runtime.start();
+  await runtime.shutdown();      // 1000 ms grace, 6000 ms total; can finish early
+  await runtime.shutdown(0);     // Observes the same actual completion, not a new stop
+  console.log(runtime.metricsSnapshot()); // null: stopped worker, not active metrics
+}
+main().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});
+```
+
+After an incomplete stop, setting an exit code alone might not terminate retained work.
+Arrange process termination through the application's supervisor policy.
+A caught error or successful late observation does not permit runtime reuse.
+A finite grace does not guarantee bounded forced cleanup.
+
+### Sizing the supervisor budget
+
+Use the supervisor time **remaining at the first shutdown call**, not its original allocation:
+
+```text
+remaining outer time > grace + 5000 ms + other shutdown work + delivery/exit margin
+```
+
+For example, assume that 30 seconds remain.
+A 30-second grace requests up to 35 seconds of waiting and cannot fit.
+A 20-second grace gives the SDK 25 seconds to wait.
+That leaves five seconds for other work, scheduling, result delivery, and process exit.
+Subtract time already spent before calling `shutdown`.
+If less than five seconds remain, `shutdown(0)` alone cannot make the SDK's timeout fit.
+
+Omitted grace still means 1000 ms grace and 6000 ms total.
+Zero grace still means 5000 ms total.
+The first call fixes those deadlines.
+Repeated calls cannot renew the budget or remove a previous termination requirement.
+Native cleanup has no total bound and can remain pending indefinitely.
+The application's parent or supervisor must allow time for process termination outside the SDK wait budget.
+The SDK does not provide a process-kill or supervisor mechanism.
+
+### Passive stop observation
+
+`runtime.stopObserver()` creates an independent `RuntimeStopObserver`.
+Do not construct the observer directly. Creating it, reading `state`, and
+waiting do not start or stop execution.
+Observation can run during native startup or shutdown; lifecycle and
+registration calls themselves must still be serialized.
+
+| State | Meaning |
+|-------|---------|
+| `'NotRequested'` | No stop is recorded. The worker can be unconstructed, starting, or running; this is not readiness or health. |
+| `'Requested'` | Stop was accepted, not necessarily received by native execution or completed. |
+| `'Faulted'` | The core recorded a runtime-wide fault. It takes precedence and cannot regress. |
+
+These are string values; `RuntimeStopStatus` is a TypeScript type, not a
+JavaScript enum. Read the initial snapshot before waiting.
+A late observer can already be Faulted. Invalid input, pre-core validation
+failure, cancellation, and observation errors do not create a runtime fault.
+
+This helper owns the observer passed to it. It reports the initial state and
+each observed change, then ends its own observation after a fault.
+Pass an observer rather than the Runtime so the pending function need not
+retain the worker:
+
+```javascript
+async function reportStopChanges(observer, signal) {
+  try {
+    let state = observer.state;
+    while (true) {
+      console.log('Runtime stop state:', state);
+      if (state === 'Faulted') return;
+
+      const next = await observer.waitForChange(state, { signal });
+      if (next === null) {
+        console.log('Stop observation source ended; cleanup is not proved.');
+        return;
+      }
+      state = next;
+    }
+  } catch (error) {
+    if (signal?.aborted && Object.is(error, signal.reason)) {
+      console.log('Stop observation canceled; worker shutdown is unchanged.');
+    } else if (error instanceof Error && error.message.startsWith('stop_observer_closed:')) {
+      console.log('Stop observation was closed.');
+    } else {
+      throw error;
+    }
+  } finally {
+    observer.close();
+  }
+}
+```
+
+In an application that owns a Runtime, call
+`reportStopChanges(runtime.stopObserver(), observationController.signal)`,
+where `observationController` is an `AbortController`.
+Observe the returned Promise and handle unexpected observation failures.
+Cancel that controller to end only monitoring.
+The application's lifecycle owner must still stop the Runtime normally.
+
+`waitForChange` compares against the supplied last-seen state; it is not an
+event queue. Changes can coalesce. A final unseen state arrives before `null`.
+The final snapshot stays readable until local close.
+The source can remain open after worker cleanup. An unchanged `'Requested'`
+or `'Faulted'` therefore still waits; cancel monitoring when no longer needed.
+
+Only one wait can be pending on an observer; overlap rejects with
+`stop_observer_busy`. Separate observers do not consume each other's state.
+An already-aborted or later-aborted signal rejects with its actual `reason`,
+which is not necessarily an `AbortError`. Cancellation alone permits retry.
+The helper above also closes its observer on exit.
+`close()` is idempotent and terminal: pending and later operations fail with
+`stop_observer_closed`. A settled Promise is not rewritten.
+
+The observer retains metadata, not Runtime/provider/registry ownership.
+Native notification context stays valid through final access even after the
+public wait settles. Closing observation does not join that tail or worker cleanup.
+Observation delivery is unreferenced and cannot by itself keep Node alive.
+A pending Promise alone is not a keepalive; leave the event loop free to deliver
+changes while your application remains active.
+
+Neither a state nor source end proves quiescence or permits release.
+A real core fault can be visible while an unregistered JavaScript callback
+continues after native retirement. This API does not add ownership of such work.
+It does not request shutdown, renew first-stop budgets, remove a termination
+requirement, or select host/process policy.
+
 ## Orchestration Patterns
 
 ### Sequential Steps
