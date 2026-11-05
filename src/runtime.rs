@@ -18,6 +18,7 @@ use duroxide::runtime::LogFormat;
 use crate::handlers::{JsActivityHandler, JsOrchestrationHandler};
 use crate::pg_provider::JsPostgresProvider;
 use crate::provider::JsSqliteProvider;
+use crate::stop_observation::{JsRuntimeStopSource, StopSource};
 use crate::types::JsMetricsSnapshot;
 
 /// Runtime options configurable from JavaScript.
@@ -94,6 +95,7 @@ pub struct JsRuntime {
     shutdown_requested: bool,
     stop: Option<ShutdownOperation>,
     startup_error: Option<runtime::RuntimeStartError>,
+    pub(crate) stop_source: StopSource,
     #[cfg(feature = "test-hooks")]
     pub(crate) test_hooks: runtime::test_hooks::LifecycleHooks,
 }
@@ -116,6 +118,7 @@ impl JsRuntime {
             shutdown_requested: false,
             stop: None,
             startup_error: None,
+            stop_source: StopSource::new(),
             #[cfg(feature = "test-hooks")]
             test_hooks: runtime::test_hooks::LifecycleHooks::default(),
         }
@@ -138,6 +141,7 @@ impl JsRuntime {
             shutdown_requested: false,
             stop: None,
             startup_error: None,
+            stop_source: StopSource::new(),
             #[cfg(feature = "test-hooks")]
             test_hooks: runtime::test_hooks::LifecycleHooks::default(),
         }
@@ -157,6 +161,11 @@ impl JsRuntime {
         self.next_fn = Some(next_fn);
         self.dispose_fn = Some(dispose_fn);
         Ok(())
+    }
+
+    #[napi]
+    pub fn stop_source(&self) -> JsRuntimeStopSource {
+        self.stop_source.subscribe()
     }
 
     /// Register a JavaScript activity function.
@@ -350,10 +359,7 @@ impl JsRuntime {
         let rt = match prepared {
             Ok(result) => result,
             Err(payload) => {
-                // Payload destruction must not reintroduce a panic across the language boundary.
-                if let Err(secondary) = catch_unwind(AssertUnwindSafe(|| drop(payload))) {
-                    std::mem::forget(secondary);
-                }
+                discard_panic_payload(payload);
                 Err(runtime::RuntimeStartError::StartupFailed)
             }
         }
@@ -361,6 +367,7 @@ impl JsRuntime {
             self.startup_error = Some(error);
             start_error(error)
         })?;
+        self.stop_source.attach(rt.stop_observer());
         self.inner = Some(rt.clone());
         #[cfg(feature = "test-hooks")]
         rt.set_lifecycle_hooks(self.test_hooks.clone())
@@ -409,6 +416,7 @@ impl JsRuntime {
     pub fn shutdown(&mut self, env: Env, timeout_ms: Option<i64>) -> Result<napi::JsObject> {
         let (grace_deadline, total_deadline) = shutdown_deadlines(timeout_ms)?;
         self.shutdown_requested = true;
+        self.stop_source.requested();
         if self.stop.is_none() {
             if let Some(runtime) = self.inner.take() {
                 runtime.request_shutdown();
@@ -444,6 +452,9 @@ impl JsRuntime {
             }
         }
         if self.inner.is_none() {
+            if self.stop.is_none() {
+                self.stop_source.close();
+            }
             self.activity_builders.clear();
             self.orchestration_names.clear();
             self.create_fn = None;
@@ -466,6 +477,12 @@ impl JsRuntime {
                 None => startup_error.map_or(Ok(()), |error| Err(start_error(error))),
             },
         )
+    }
+}
+
+pub(crate) fn discard_panic_payload(payload: Box<dyn std::any::Any + Send>) {
+    if let Err(secondary) = catch_unwind(AssertUnwindSafe(|| drop(payload))) {
+        std::mem::forget(secondary);
     }
 }
 

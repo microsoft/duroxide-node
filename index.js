@@ -313,12 +313,14 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { JsClient, JsPostgresProvider, JsSqliteProvider, JsRuntime, activityTraceLog, orchestrationTraceLog, activityIsCancelled, activityGetClient, activityTag, orchestrationSetCustomStatus, orchestrationResetCustomStatus, orchestrationGetCustomStatus, orchestrationSetValue, orchestrationGetValue, orchestrationClearValue, orchestrationClearAllValues, orchestrationGetKvAllValues, orchestrationGetKvAllKeys, orchestrationGetKvLength, orchestrationPruneKvValues, initTracing } = nativeBinding
+const { JsClient, JsPostgresProvider, JsSqliteProvider, JsRuntime, JsRuntimeStopSource, JsRuntimeStopWait, activityTraceLog, orchestrationTraceLog, activityIsCancelled, activityGetClient, activityTag, orchestrationSetCustomStatus, orchestrationResetCustomStatus, orchestrationGetCustomStatus, orchestrationSetValue, orchestrationGetValue, orchestrationClearValue, orchestrationClearAllValues, orchestrationGetKvAllValues, orchestrationGetKvAllKeys, orchestrationGetKvLength, orchestrationPruneKvValues, initTracing } = nativeBinding
 
 module.exports.JsClient = JsClient
 module.exports.JsPostgresProvider = JsPostgresProvider
 module.exports.JsSqliteProvider = JsSqliteProvider
 module.exports.JsRuntime = JsRuntime
+module.exports.JsRuntimeStopSource = JsRuntimeStopSource
+module.exports.JsRuntimeStopWait = JsRuntimeStopWait
 module.exports.activityTraceLog = activityTraceLog
 module.exports.orchestrationTraceLog = orchestrationTraceLog
 module.exports.activityIsCancelled = activityIsCancelled

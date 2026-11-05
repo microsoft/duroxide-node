@@ -12,6 +12,7 @@ mod handlers;
 mod pg_provider;
 mod provider;
 mod runtime;
+mod stop_observation;
 #[cfg(feature = "test-hooks")]
 mod test_hooks;
 mod types;
@@ -20,6 +21,7 @@ pub use client::JsClient;
 pub use pg_provider::JsPostgresProvider;
 pub use provider::JsSqliteProvider;
 pub use runtime::{JsRuntime, JsRuntimeOptions};
+pub use stop_observation::{JsRuntimeStopSnapshot, JsRuntimeStopSource, JsRuntimeStopWait};
 #[cfg(feature = "test-hooks")]
 pub use test_hooks::lifecycle_test_hooks;
 pub use types::{JsOrchestrationStatus, JsQueueDepths, JsSystemMetrics};

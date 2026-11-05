@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add owned, metadata-only `RuntimeStopObserver` through `Runtime.stopObserver()`.
+  Retained stop/fault state supports independent AbortSignal waits, terminal
+  local close, and final-state delivery before source end. Observation does not
+  retain worker callbacks, keep Node alive by itself, or change shutdown
+  ownership, deadlines, and application policy.
+
 ### Changed
 
 - Use fallible core startup and bounded shutdown waits while preserving `Promise<void>`.

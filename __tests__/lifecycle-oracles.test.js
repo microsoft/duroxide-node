@@ -10,6 +10,7 @@ const { startProbe, OUTPUT_LIMIT } = require('./helpers/lifecycle-probe.cjs');
 const {
   diagnostic, knownQuiescentCoreFailure, incompleteTimeout, retiredState,
   shutdownTiming, assertShutdownTiming, orderedRaceAttempt,
+  pendingObserverExit,
 } = require('./helpers/lifecycle-oracles.cjs');
 
 test('failure category does not claim quiescence for owner loss or callback release errors', () => {
@@ -137,4 +138,17 @@ test('native provenance records survive TAP escaping of Windows paths', () => {
   assert.deepEqual(encodedRecords(`# LIFECYCLE_NATIVE_RECORD ${encoded}\r\n`, 'LIFECYCLE_NATIVE_RECORD'), [record]);
   assert.deepEqual(encodedRecords('# unrelated\n', 'LIFECYCLE_NATIVE_RECORD'), []);
   assert.throws(() => encodedRecords('# LIFECYCLE_NATIVE_RECORD e2Jyb2tlbg==\n', 'LIFECYCLE_NATIVE_RECORD'));
+});
+
+test('stop observer natural-exit oracle rejects ended sources, settled promises and retired notifications', () => {
+  const pending = {
+    source: { state: 'Requested', closed: false },
+    settled: false,
+    execution: { started: 1, completed: 1, active: 0, cleanupActive: 0, coordinators: 1, observerPending: 1 },
+  };
+  pendingObserverExit(pending);
+  assert.throws(() => pendingObserverExit({ ...pending, source: { ...pending.source, closed: true } }), /ended source/);
+  assert.throws(() => pendingObserverExit({ ...pending, settled: true }), /settled promise/);
+  assert.throws(() => pendingObserverExit({ ...pending, execution: { ...pending.execution, observerPending: 0 } }), /still be owned/);
+  assert.throws(() => pendingObserverExit({ ...pending, execution: { ...pending.execution, active: 1 } }));
 });

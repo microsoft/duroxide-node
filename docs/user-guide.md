@@ -158,6 +158,93 @@ Native cleanup has no total bound and can remain pending indefinitely.
 The application's parent or supervisor must allow time for process termination outside the SDK wait budget.
 The SDK does not provide a process-kill or supervisor mechanism.
 
+### Passive stop observation
+
+`runtime.stopObserver()` creates an independent `RuntimeStopObserver`.
+Do not construct the observer directly. Creating it, reading `state`, and
+waiting do not start or stop execution.
+Observation can run during native startup or shutdown; lifecycle and
+registration calls themselves must still be serialized.
+
+| State | Meaning |
+|-------|---------|
+| `'NotRequested'` | No stop is recorded. The worker can be unconstructed, starting, or running; this is not readiness or health. |
+| `'Requested'` | Stop was accepted, not necessarily received by native execution or completed. |
+| `'Faulted'` | The core recorded a runtime-wide fault. It takes precedence and cannot regress. |
+
+These are string values; `RuntimeStopStatus` is a TypeScript type, not a
+JavaScript enum. Read the initial snapshot before waiting.
+A late observer can already be Faulted. Invalid input, pre-core validation
+failure, cancellation, and observation errors do not create a runtime fault.
+
+This helper owns the observer passed to it. It reports the initial state and
+each observed change, then ends its own observation after a fault.
+Pass an observer rather than the Runtime so the pending function need not
+retain the worker:
+
+```javascript
+async function reportStopChanges(observer, signal) {
+  try {
+    let state = observer.state;
+    while (true) {
+      console.log('Runtime stop state:', state);
+      if (state === 'Faulted') return;
+
+      const next = await observer.waitForChange(state, { signal });
+      if (next === null) {
+        console.log('Stop observation source ended; cleanup is not proved.');
+        return;
+      }
+      state = next;
+    }
+  } catch (error) {
+    if (signal?.aborted && Object.is(error, signal.reason)) {
+      console.log('Stop observation canceled; worker shutdown is unchanged.');
+    } else if (error instanceof Error && error.message.startsWith('stop_observer_closed:')) {
+      console.log('Stop observation was closed.');
+    } else {
+      throw error;
+    }
+  } finally {
+    observer.close();
+  }
+}
+```
+
+In an application that owns a Runtime, call
+`reportStopChanges(runtime.stopObserver(), observationController.signal)`,
+where `observationController` is an `AbortController`.
+Observe the returned Promise and handle unexpected observation failures.
+Cancel that controller to end only monitoring.
+The application's lifecycle owner must still stop the Runtime normally.
+
+`waitForChange` compares against the supplied last-seen state; it is not an
+event queue. Changes can coalesce. A final unseen state arrives before `null`.
+The final snapshot stays readable until local close.
+The source can remain open after worker cleanup. An unchanged `'Requested'`
+or `'Faulted'` therefore still waits; cancel monitoring when no longer needed.
+
+Only one wait can be pending on an observer; overlap rejects with
+`stop_observer_busy`. Separate observers do not consume each other's state.
+An already-aborted or later-aborted signal rejects with its actual `reason`,
+which is not necessarily an `AbortError`. Cancellation alone permits retry.
+The helper above also closes its observer on exit.
+`close()` is idempotent and terminal: pending and later operations fail with
+`stop_observer_closed`. A settled Promise is not rewritten.
+
+The observer retains metadata, not Runtime/provider/registry ownership.
+Native notification context stays valid through final access even after the
+public wait settles. Closing observation does not join that tail or worker cleanup.
+Observation delivery is unreferenced and cannot by itself keep Node alive.
+A pending Promise alone is not a keepalive; leave the event loop free to deliver
+changes while your application remains active.
+
+Neither a state nor source end proves quiescence or permits release.
+A real core fault can be visible while an unregistered JavaScript callback
+continues after native retirement. This API does not add ownership of such work.
+It does not request shutdown, renew first-stop budgets, remove a termination
+requirement, or select host/process policy.
+
 ## Orchestration Patterns
 
 ### Sequential Steps

@@ -2,6 +2,9 @@
 // Licensed under the MIT License.
 
 const assert = require('node:assert/strict');
+const { getEventListeners } = require('node:events');
+const { performance } = require('node:perf_hooks');
+const { setTimeout: delay } = require('node:timers/promises');
 
 function diagnostic(category) {
   return error => {
@@ -102,7 +105,148 @@ async function orderedRaceAttempt(runtime, hooks, force, iteration) {
   }
 }
 
+async function bounded(promise, milliseconds = 3000) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('stop observation did not settle within its test bound')), milliseconds);
+      }),
+    ]);
+  } finally { clearTimeout(timer); }
+}
+
+async function until(predicate, milliseconds = 3000) {
+  const deadline = performance.now() + milliseconds;
+  while (!predicate()) {
+    assert.ok(performance.now() < deadline, 'stop observation condition did not become true');
+    await delay(1);
+  }
+}
+
+function pendingObserverExit(value) {
+  assert.equal(value.source.closed, false, 'an ended source cannot prove pending observation liveness');
+  assert.equal(value.settled, false, 'a settled promise cannot prove pending observation liveness');
+  assert.equal(value.source.state, 'Requested');
+  if (value.execution) {
+    retiredState(value.execution, { executionWitness: true });
+    assert.ok(value.execution.observerPending > 0, 'notification context must still be owned');
+  }
+}
+
+async function observerRaceAttempt(runtime, hooks, changeFirst, iteration) {
+  const armed = [];
+  let delivered = 0;
+  const nativeWait = runtime._stopSource.waitForChange;
+  Object.defineProperty(runtime._stopSource, 'waitForChange', {
+    value(lastSeen, callback) {
+      return nativeWait.call(this, lastSeen, (...args) => {
+        delivered++;
+        callback(...args);
+      });
+    },
+  });
+  const first = runtime.stopObserver();
+  const closed = runtime.stopObserver();
+  const initialAbort = new AbortController();
+  const retryAbort = new AbortController();
+  const reason = new Error('first-observation-aborted');
+  const retryReason = new Error('retried-observation-aborted');
+  let startup;
+  let failure;
+  let phase = 'arming';
+  let late;
+  try {
+    for (const gate of ['startup', 'observer-delivery']) {
+      phase = `arm:${gate}`;
+      hooks.hold(gate);
+      armed.push(gate);
+    }
+    const firstWait = first.waitForChange('NotRequested', { signal: initialAbort.signal });
+    const closeWait = closed.waitForChange('NotRequested');
+    firstWait.catch(() => {});
+    closeWait.catch(() => {});
+    const staleAbort = assertSingleListener(initialAbort.signal);
+    startup = runtime.start();
+    phase = 'held-startup';
+    await hooks.waitEntered('startup');
+    late = runtime.stopObserver();
+    assert.equal(first.state, 'NotRequested');
+    assert.equal(late.state, 'NotRequested');
+    if (changeFirst) {
+      hooks.release('startup');
+      await startup;
+      await runtime.shutdown(0);
+      await hooks.waitEntered('observer-delivery');
+    }
+    phase = 'cancel-and-close';
+    initialAbort.abort(reason);
+    closed.close();
+    await bounded(Promise.all([
+      assert.rejects(firstWait, error => error === reason),
+      assert.rejects(closeWait, /stop_observer_closed/),
+    ]));
+    assert.equal(getEventListeners(initialAbort.signal, 'abort').length, 0);
+    assert.equal(first.state, changeFirst ? 'Requested' : 'NotRequested');
+    let retriedSettled = false;
+    const retry = first.waitForChange(changeFirst ? 'Requested' : 'NotRequested', { signal: retryAbort.signal });
+    retry.then(() => { retriedSettled = true; }, () => { retriedSettled = true; });
+    staleAbort();
+    assertSingleListener(retryAbort.signal);
+    phase = 'retire-worker';
+    if (!changeFirst) {
+      hooks.release('startup');
+      await startup;
+      await runtime.shutdown(0);
+      await hooks.waitEntered('observer-delivery');
+    }
+    const state = JSON.parse(hooks.snapshot());
+    retiredState(state, { executionWitness: true });
+    assert.ok(state.observerPending >= 2, 'old notification contexts must survive local settlement');
+    assert.equal(late.state, 'Requested');
+    assert.equal(runtime._stopSource.snapshot().closed, false);
+    phase = 'late-delivery';
+    hooks.release('observer-delivery');
+    if (changeFirst) {
+      await until(() => delivered >= 2);
+      assert.equal(retriedSettled, false, 'old callbacks must not settle the new pending wait');
+      retryAbort.abort(retryReason);
+      await bounded(assert.rejects(retry, error => error === retryReason));
+    } else {
+      assert.equal(await bounded(retry), 'Requested');
+      retryAbort.abort(retryReason);
+      assert.equal(await retry, 'Requested', 'settled results are not rewritten by abort or close');
+    }
+    assert.equal(getEventListeners(retryAbort.signal, 'abort').length, 0);
+    first.close();
+    await until(() => JSON.parse(hooks.snapshot()).observerPending === 0);
+  } catch (error) {
+    failure = new Error(`stop observer ${changeFirst ? 'change-first' : 'cancel-first'} iteration ${iteration + 1}/100 phase=${phase}`, { cause: error });
+  } finally {
+    first.close();
+    closed.close();
+    late?.close();
+    for (const gate of armed) {
+      try { hooks.release(gate); }
+      catch (error) { failure ??= new Error(`stop observer cleanup gate ${gate}`, { cause: error }); }
+    }
+    try {
+      if (startup) await startup;
+      await runtime.shutdown(0);
+    } catch (error) { failure ??= error; }
+  }
+  if (failure) throw failure;
+}
+
+function assertSingleListener(signal) {
+  const listeners = getEventListeners(signal, 'abort');
+  assert.equal(listeners.length, 1);
+  return listeners[0];
+}
+
 module.exports = {
   diagnostic, knownQuiescentCoreFailure, incompleteTimeout, retiredState,
   shutdownTiming, assertShutdownTiming, orderedRaceAttempt,
+  bounded, until, pendingObserverExit, observerRaceAttempt,
 };

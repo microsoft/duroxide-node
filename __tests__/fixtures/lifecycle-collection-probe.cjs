@@ -4,10 +4,11 @@
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { performance } = require('node:perf_hooks');
+const { getEventListeners } = require('node:events');
 const { setImmediate: nextTurn, setTimeout: delay } = require('node:timers/promises');
 const { SqliteProvider, Runtime } = require('../../lib/duroxide.js');
 const { nativeProvenance } = require('../../ci/smoke/native-provenance.cjs');
-const { incompleteTimeout, knownQuiescentCoreFailure, retiredState } = require('../helpers/lifecycle-oracles.cjs');
+const { incompleteTimeout, knownQuiescentCoreFailure, retiredState, bounded, until } = require('../helpers/lifecycle-oracles.cjs');
 
 const { native, provenance } = nativeProvenance(path.resolve(__dirname, '..', '..'), {
   instrumented: process.env.DUROXIDE_LIFECYCLE_TEST_HOOKS === '1',
@@ -109,9 +110,110 @@ async function observeLateCompletion(runtimeRef) {
   assert.equal(runtime.metricsSnapshot(), null);
 }
 
+function observationOwner() {
+  return SqliteProvider.inMemory().then(provider => {
+    const runtime = new Runtime(provider);
+    const observer = runtime.stopObserver();
+    const records = {};
+    for (const [name, value] of Object.entries({ runtime, native: runtime._native })) {
+      const label = `SourceEnd:${name}`;
+      registry.register(value, label);
+      records[name] = { label, weak: new WeakRef(value) };
+    }
+    const abort = new AbortController();
+    const pending = observer.waitForChange('NotRequested', { signal: abort.signal });
+    pending.catch(() => {});
+    return { observer, records, pending, abort };
+  });
+}
+
+async function sourceEndProbe() {
+  const { observer, records, pending, abort } = await observationOwner();
+  try {
+    const state = await settle(records, records);
+    assert.ok(collected(state.control), JSON.stringify(state));
+    assert.equal(await bounded(pending), null);
+    assert.equal(getEventListeners(abort.signal, 'abort').length, 0);
+    abort.abort();
+    assert.equal(await pending, null);
+    assert.equal(observer.state, 'NotRequested');
+    assert.equal(await observer.waitForChange('NotRequested'), null);
+    emit('OBSERVER_COLLECTION', { scenario: 'observer-source-end', collected: true, state, native: provenance });
+  } finally { observer.close(); }
+}
+
+async function retainedObservationOwner(label, captures) {
+  const runtime = new Runtime(await SqliteProvider.inMemory(), { dispatcherPollIntervalMs: 5 });
+  const owner = { runtime, prefix: label };
+  const callback = captures ? capturingActivity(owner) : noncapturingActivity();
+  const records = {};
+  for (const [name, value] of Object.entries({ owner, callback })) {
+    const key = `${label}:${name}`;
+    registry.register(value, key);
+    records[name] = { label: key, weak: new WeakRef(value) };
+  }
+  runtime.registerActivity(`ObserverCollection${label}`, callback);
+  const observer = runtime.stopObserver();
+  const hooks = provenance.instrumented ? native._lifecycleTestHooks(runtime._native) : undefined;
+  let first;
+  if (hooks) {
+    hooks.hold('observer-final-access');
+    first = observer.waitForChange('NotRequested');
+    first.catch(() => {});
+  }
+  await runtime.start();
+  await runtime.shutdown(100);
+  if (hooks) {
+    assert.equal(await bounded(first), 'Requested');
+    await hooks.waitEntered('observer-final-access');
+    assert.ok(JSON.parse(hooks.snapshot()).observerPending > 0);
+  }
+  const pendingState = { settled: false };
+  const pending = observer.waitForChange('Requested');
+  pending.then(() => { pendingState.settled = true; }, () => { pendingState.settled = true; });
+  return { runtime, observer, pending, pendingState, hooks, records };
+}
+
+async function retainedObservationProbe() {
+  const control = await retainedObservationOwner('ObserverControl', false);
+  const captured = await retainedObservationOwner('ObserverCaptured', true);
+  try {
+    const state = await settle(control.records, captured.records);
+    assert.ok(collected(state.control), JSON.stringify(state));
+    assert.ok(collected(state.captured), JSON.stringify(state));
+    for (const value of [control, captured]) {
+      assert.equal(value.runtime.metricsSnapshot(), null);
+      assert.equal(value.observer.state, 'Requested');
+      assert.equal(value.runtime._stopSource.snapshot().closed, false);
+      assert.equal(value.pendingState.settled, false);
+      if (value.hooks) {
+        const execution = JSON.parse(value.hooks.snapshot());
+        retiredState(execution, { executionWitness: true });
+        assert.ok(execution.observerPending >= 2, 'old delivery tail and new wait must both remain owned');
+      }
+    }
+    emit('OBSERVER_COLLECTION', {
+      scenario: 'retained-observer', collected: true, state, native: provenance,
+      runtimeRetained: true, observerRetained: true, sourceOpen: true,
+      nativeTailHeld: provenance.instrumented,
+    });
+  } finally {
+    for (const value of [control, captured]) {
+      value.observer.close();
+      await assert.rejects(value.pending, /stop_observer_closed/);
+      if (value.hooks) {
+        value.hooks.release('observer-final-access');
+        await until(() => JSON.parse(value.hooks.snapshot()).observerPending === 0);
+      }
+    }
+  }
+}
+
 async function main() {
   assert.equal(typeof global.gc, 'function', 'collection probe requires --expose-gc');
   const requested = process.argv[2];
+  if (requested === 'observer-source-end') return sourceEndProbe();
+  if (requested === 'retained-observer') return retainedObservationProbe();
   const scenario = requested === 'baseline' ? 'completed' : requested;
   assert.ok(['completed', 'quiescent-failure', 'late', 'late-unobserved'].includes(scenario));
   const [control, captured] = await Promise.all([

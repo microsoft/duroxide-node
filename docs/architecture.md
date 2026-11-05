@@ -440,6 +440,32 @@ The global orchestration-handler map also remains unchanged.
 See the [lifecycle guide](user-guide.md#runtime-lifecycle) for argument
 validation, errors, and release prerequisites.
 
+### Passive Stop Observation
+
+`Runtime` caches a receiver-only native source when it creates its wrapper.
+`stopObserver()` uses that source rather than borrowing the mutable native
+Runtime during startup or shutdown. Each observer owns metadata and one pending
+wait slot, not the Runtime, provider, or callback registry.
+
+The SDK publisher freezes the final state and detaches its live core receiver
+when the source ends. Reads use coherent status/closed metadata.
+Core retirement alone is not SDK source end. A wait delivers an unseen final
+state before `null`; local `close()` instead rejects pending and later use.
+
+Each wait owns cancellation metadata and an unreferenced observation
+ThreadsafeFunction. Settlement removes its AbortSignal listener and clears
+resolver/rejector fields. Registration rechecks reentrant state and closes any
+native handle returned after settlement. An old callback cannot settle a later
+wait on the same observer. Native delivery context remains valid through final
+access without joining worker cleanup.
+
+Only observation delivery is unreferenced early. Existing worker/shutdown
+callback release still requires its own cleanup proof.
+Native queued-delivery counters are not JavaScript Promise-settlement counts.
+Neither status, source end, nor these counters prove that an unregistered
+JavaScript continuation ended. See the
+[observer contract and example](user-guide.md#passive-stop-observation).
+
 ### Platform-Specific Binary
 
 napi-rs compiles to a platform-specific `.node` binary (e.g., `duroxide.darwin-arm64.node`). Cross-platform distribution requires building on each target platform or using napi-rs's pre-built binary publishing flow.

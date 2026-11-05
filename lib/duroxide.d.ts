@@ -311,6 +311,41 @@ export interface RuntimeOptions extends JsRuntimeOptions {
   workerTagFilter?: TagFilter;
 }
 
+/**
+ * Retained stop state, not readiness or proof of cleanup.
+ * NotRequested includes unconstructed/starting/running; Requested records accepted stop.
+ * Faulted is a sticky recorded core-wide fault, not an observation error.
+ * This is a type-only union, not a runtime enum.
+ */
+export type RuntimeStopStatus = 'NotRequested' | 'Requested' | 'Faulted';
+
+/**
+ * Independent, owned observation that does not retain worker/provider/registry resources.
+ * Obtain it through Runtime.stopObserver() and read state before waiting.
+ * Neither status nor source end proves cleanup or changes shutdown budgets/policy.
+ */
+export declare class RuntimeStopObserver {
+  private constructor();
+  /** Retained snapshot, including after normal source end. Fails after local close. */
+  readonly state: RuntimeStopStatus;
+  /**
+   * Compare against lastSeen; return a different state or null at normal source end.
+   * Return an unseen final state before null. Intermediate changes can coalesce.
+   * An unchanged Requested/Faulted still waits while the source is open.
+   * One pending wait per observer; overlap rejects with stop_observer_busy.
+   * Abort rejects with signal.reason, affects only this wait and permits retry.
+   * Local close instead rejects with stop_observer_closed and prevents reuse.
+   * Observation errors propagate without manufacturing Faulted.
+   * Delivery requires event-loop progress but does not keep Node alive by itself.
+   */
+  waitForChange(lastSeen: RuntimeStopStatus, options?: { signal?: AbortSignal }): Promise<RuntimeStopStatus | null>;
+  /**
+   * End observation and reject a pending wait. Idempotent; later reads and waits fail.
+   * Does not rewrite settled results or join worker cleanup/native final access.
+   */
+  close(): void;
+}
+
 /** Durable execution runtime. */
 export declare class Runtime {
   constructor(provider: SqliteProvider | PostgresProvider, options?: RuntimeOptions);
@@ -330,6 +365,11 @@ export declare class Runtime {
    * timeoutMs must be a nonnegative safe integer within the native monotonic deadline range.
    */
   shutdown(timeoutMs?: number): Promise<void>;
+  /**
+   * Create an independent observer, including during native startup/shutdown.
+   * Does not start/stop execution or retain this worker. The caller owns close().
+   */
+  stopObserver(): RuntimeStopObserver;
   metricsSnapshot(): JsMetricsSnapshot | null;
 }
 

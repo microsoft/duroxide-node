@@ -7,7 +7,7 @@ const { performance } = require('node:perf_hooks');
 const path = require('node:path');
 const { SqliteProvider, Runtime } = require('../../lib/duroxide.js');
 const { nativeProvenance } = require('../../ci/smoke/native-provenance.cjs');
-const { incompleteTimeout, retiredState } = require('../helpers/lifecycle-oracles.cjs');
+const { incompleteTimeout, retiredState, pendingObserverExit } = require('../helpers/lifecycle-oracles.cjs');
 const { native, provenance } = nativeProvenance(path.resolve(__dirname, '..', '..'), {
   instrumented: process.env.DUROXIDE_LIFECYCLE_TEST_HOOKS === '1',
   manifestPath: process.env.DUROXIDE_NATIVE_MANIFEST,
@@ -55,6 +55,38 @@ async function main() {
     await runtime.shutdown(100);
     globalThis.retainedRuntime = runtime;
     emit('EXIT_READY');
+    return;
+  }
+  if (scenario === 'observer-exit') {
+    const hooks = provenance.instrumented ? native._lifecycleTestHooks(runtime._native) : undefined;
+    const observer = runtime.stopObserver();
+    runtime.registerActivity('ObserverExitActivity', async (_, value) => value);
+    let settled = false;
+    let pending;
+    if (hooks) {
+      hooks.hold('observer-delivery');
+      pending = observer.waitForChange('NotRequested');
+      pending.then(() => { settled = true; }, () => { settled = true; });
+    }
+    await runtime.start();
+    await runtime.shutdown(100);
+    if (hooks) {
+      await hooks.waitEntered('observer-delivery');
+    } else {
+      pending = observer.waitForChange('Requested');
+      pending.then(() => { settled = true; }, () => { settled = true; });
+    }
+    const report = () => ({
+      source: runtime._stopSource.snapshot(), settled, native: provenance,
+      execution: hooks ? JSON.parse(hooks.snapshot()) : undefined,
+    });
+    globalThis.retainedObserver = { runtime, observer, pending, hooks };
+    pendingObserverExit(report());
+    emit('OBSERVER_EXIT_READY', report());
+    process.once('beforeExit', () => {
+      pendingObserverExit(report());
+      emit('OBSERVER_BEFORE_EXIT', report());
+    });
     return;
   }
   const hooks = native._lifecycleTestHooks(runtime._native);

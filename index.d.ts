@@ -102,6 +102,10 @@ export interface JsRuntimeOptions {
   /** Tag list for "tags" or "defaultAnd" filter modes. */
   workerTagFilterTags?: Array<string>
 }
+export interface JsRuntimeStopSnapshot {
+  state: string
+  closed: boolean
+}
 /** Orchestration status returned to JS. */
 export interface JsOrchestrationStatus {
   status: string
@@ -379,6 +383,7 @@ export declare class JsRuntime {
    * These three functions handle: creating generators, driving next steps, and disposing.
    */
   setGeneratorDriver(createFn: (arg: string) => any, nextFn: (arg: string) => any, disposeFn: (arg: string) => any): void
+  stopSource(): JsRuntimeStopSource
   /**
    * Register a JavaScript activity function.
    * The JS function receives (contextInfoJson, input) and returns a Promise<string>.
@@ -400,11 +405,13 @@ export declare class JsRuntime {
   start(): Promise<void>
   /** Get a snapshot of runtime metrics. */
   metricsSnapshot(): JsMetricsSnapshot | null
-  /**
-   * Shutdown the runtime gracefully.
-   *
-   * # Safety
-   * Must not be called concurrently from multiple threads.
-   */
+  /** Stop with bounded waiting. Do not overlap lifecycle/registration calls. */
   shutdown(timeoutMs?: number | undefined | null): Promise<void>
+}
+export declare class JsRuntimeStopSource {
+  snapshot(): JsRuntimeStopSnapshot
+  waitForChange(lastSeen: string, callback: (err: Error | null, arg: string | undefined | null) => any): JsRuntimeStopWait
+}
+export declare class JsRuntimeStopWait {
+  close(): void
 }

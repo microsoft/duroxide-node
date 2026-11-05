@@ -5,12 +5,15 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { performance } = require('node:perf_hooks');
-const { SqliteProvider, Client, Runtime } = require('../lib/duroxide.js');
+const { getEventListeners } = require('node:events');
+const { createHook } = require('node:async_hooks');
+const { SqliteProvider, Client, Runtime, RuntimeStopObserver } = require('../lib/duroxide.js');
 const { nativeProvenance } = require('../ci/smoke/native-provenance.cjs');
 const { startProbe } = require('./helpers/lifecycle-probe.cjs');
 const {
   diagnostic, knownQuiescentCoreFailure, retiredState,
   shutdownTiming, assertShutdownTiming, orderedRaceAttempt,
+  bounded, until, pendingObserverExit, observerRaceAttempt,
 } = require('./helpers/lifecycle-oracles.cjs');
 
 const root = path.resolve(__dirname, '..');
@@ -367,6 +370,405 @@ for (const scenario of ['quiescent-failure', 'late', 'late-unobserved']) {
       assert.ok(result.controlCollected);
       assert.ok(result.capturedCollected);
       if (scenario.startsWith('late')) assert.ok(result.retainedWhileIncomplete);
+      record('LIFECYCLE_PROBE_RECORD', result);
+      await probe.successfulExit(3000);
+    } finally { await probe.dispose(); }
+  });
+}
+
+test('stop observer arguments and already-aborted signals do not activate or stop the worker', async () => {
+  const { runtime, hooks } = await fixture();
+  const observer = runtime.stopObserver();
+  try {
+    assert.ok(observer instanceof RuntimeStopObserver);
+    assert.throws(() => new RuntimeStopObserver(), TypeError);
+    for (const status of [undefined, null, 0, 'requested', {}, new String('Requested')]) {
+      await assert.rejects(observer.waitForChange(status), TypeError);
+    }
+    for (const options of [null, false, 1, 'options']) {
+      await assert.rejects(observer.waitForChange('NotRequested', options), TypeError);
+    }
+    for (const signal of [null, {}, false, new AbortController()]) {
+      await assert.rejects(observer.waitForChange('NotRequested', { signal }), TypeError);
+    }
+    for (const reason of [new Error('abort-reason'), null, false, 'abort-reason']) {
+      const abort = new AbortController();
+      abort.abort(reason);
+      const observed = await observer.waitForChange('NotRequested', { signal: abort.signal })
+        .then(() => assert.fail('an already-aborted wait must reject'), error => error);
+      assert.equal(observed, reason);
+      assert.equal(getEventListeners(abort.signal, 'abort').length, 0);
+    }
+    const ordinaryAbort = new AbortController();
+    ordinaryAbort.abort();
+    await assert.rejects(observer.waitForChange('NotRequested', { signal: ordinaryAbort.signal }), { name: 'AbortError' });
+    assert.equal(observer.state, 'NotRequested');
+    assert.equal(runtime.metricsSnapshot(), null);
+    if (hooks) {
+      const state = JSON.parse(hooks.snapshot());
+      assert.equal(state.started, 0);
+      assert.equal(state.coordinators, 0);
+      assert.equal(state.observerPending, 0);
+    }
+    await runtime.start();
+    assert.equal(observer.state, 'NotRequested');
+    observer.close();
+    assert.notEqual(runtime.metricsSnapshot(), null);
+  } finally {
+    observer.close();
+    await runtime.shutdown(0);
+  }
+});
+
+test('stop observer waits isolate abort, overlap and terminal close and deliver unseen final state', async () => {
+  const { runtime } = await fixture();
+  const first = runtime.stopObserver();
+  const second = runtime.stopObserver();
+  const closed = runtime.stopObserver();
+  try {
+    const abort = new AbortController();
+    const pending = first.waitForChange('NotRequested', { signal: abort.signal });
+    pending.catch(() => {});
+    const other = second.waitForChange('NotRequested');
+    other.catch(() => {});
+    const closingSignal = new AbortController().signal;
+    const closeWait = closed.waitForChange('NotRequested', { signal: closingSignal });
+    closeWait.catch(() => {});
+    await assert.rejects(first.waitForChange('NotRequested'), /stop_observer_busy/);
+    abort.abort();
+    await assert.rejects(pending, { name: 'AbortError' });
+    assert.equal(getEventListeners(abort.signal, 'abort').length, 0);
+    assert.equal(first.state, 'NotRequested');
+    closed.close();
+    closed.close();
+    await assert.rejects(closeWait, /stop_observer_closed/);
+    assert.equal(getEventListeners(closingSignal, 'abort').length, 0);
+    assert.throws(() => closed.state, /stop_observer_closed/);
+    await assert.rejects(closed.waitForChange('NotRequested'), /stop_observer_closed/);
+    const nextAbort = new AbortController();
+    const retry = first.waitForChange('NotRequested', { signal: nextAbort.signal });
+    retry.catch(() => {});
+    await runtime.shutdown(0);
+    assert.deepEqual(await bounded(Promise.all([retry, other])), ['Requested', 'Requested']);
+    assert.equal(getEventListeners(nextAbort.signal, 'abort').length, 0);
+    nextAbort.abort();
+    assert.equal(await retry, 'Requested');
+    assert.equal(await first.waitForChange('NotRequested'), 'Requested');
+    assert.equal(await first.waitForChange('Requested'), null);
+    assert.equal(first.state, 'Requested');
+    const late = runtime.stopObserver();
+    try {
+      assert.equal(await late.waitForChange('NotRequested'), 'Requested');
+      assert.equal(await late.waitForChange('Requested'), null);
+      first.close();
+      assert.equal(late.state, 'Requested');
+    } finally { late.close(); }
+  } finally {
+    first.close();
+    second.close();
+    closed.close();
+    await runtime.shutdown(0);
+  }
+});
+
+for (const action of ['abort', 'close', 'overlap']) {
+  test(`stop observer registration remains isolated under reentrant ${action}`, async () => {
+    for (const point of ['options', 'promise', 'native']) {
+      const { runtime, hooks } = await fixture();
+      const observer = runtime.stopObserver();
+      const abort = new AbortController();
+      const otherAbort = new AbortController();
+      const reason = new Error(`registration-${action}-${point}`);
+      const resources = new Set();
+      const destroyed = new Set();
+      let entered = false;
+      let promises = 0;
+      let other;
+      const reenter = () => {
+        if (entered) return;
+        entered = true;
+        if (action === 'abort') abort.abort(reason);
+        else if (action === 'close') observer.close();
+        else {
+          other = observer.waitForChange('NotRequested', { signal: otherAbort.signal });
+          other.catch(() => {});
+        }
+      };
+      // Async hooks can run while the Promise or native notification is being constructed.
+      const hook = createHook({
+        init(id, type) {
+          if (type === 'napi_rs_threadsafe_function') resources.add(id);
+          if (point === 'promise' && type === 'PROMISE' && ++promises === 2) reenter();
+          if (point === 'native' && type === 'napi_rs_threadsafe_function') reenter();
+        },
+        destroy(id) { if (resources.has(id)) destroyed.add(id); },
+      });
+      try {
+        hook.enable();
+        const options = point === 'options'
+          ? { get signal() { reenter(); return abort.signal; } }
+          : { signal: abort.signal };
+        const pending = observer.waitForChange('NotRequested', options);
+        pending.catch(() => {});
+        assert.ok(entered, `${action}: ${point}`);
+        if (action === 'abort') {
+          await bounded(assert.rejects(pending, error => error === reason));
+        } else if (action === 'close') {
+          await bounded(assert.rejects(pending, /stop_observer_closed/));
+          assert.throws(() => observer.state, /stop_observer_closed/);
+        } else {
+          const winner = point === 'native' ? pending : other;
+          const overlap = point === 'native' ? other : pending;
+          await bounded(assert.rejects(overlap, /stop_observer_busy/));
+          (point === 'native' ? abort : otherAbort).abort(reason);
+          await bounded(assert.rejects(winner, error => error === reason));
+        }
+        assert.equal(getEventListeners(abort.signal, 'abort').length, 0);
+        assert.equal(getEventListeners(otherAbort.signal, 'abort').length, 0);
+        await until(() => [...resources].every(id => destroyed.has(id)));
+        assert.equal(runtime.metricsSnapshot(), null);
+        if (action !== 'close') assert.equal(observer.state, 'NotRequested');
+        if (hooks) {
+          const state = JSON.parse(hooks.snapshot());
+          assert.equal(state.observerPending, 0);
+          assert.equal(state.started, 0);
+          assert.equal(state.coordinators, 0);
+        }
+      } finally {
+        hook.disable();
+        observer.close();
+        abort.abort(reason);
+        otherAbort.abort(reason);
+        await runtime.shutdown(0);
+      }
+    }
+  });
+}
+
+test('stop observer does not manufacture Faulted from a pre-core startup error', async () => {
+  const { runtime } = await fixture({ sessionIdleTimeoutMs: 0 });
+  const observer = runtime.stopObserver();
+  try {
+    await assert.rejects(runtime.start(), diagnostic('lifecycle_start_failed'));
+    assert.equal(observer.state, 'NotRequested');
+    const pending = observer.waitForChange('NotRequested');
+    pending.catch(() => {});
+    await assert.rejects(runtime.shutdown(0), diagnostic('lifecycle_start_failed'));
+    assert.equal(await bounded(pending), 'Requested');
+    assert.equal(await observer.waitForChange('Requested'), null);
+  } finally {
+    observer.close();
+    await assert.rejects(runtime.shutdown(0), diagnostic('lifecycle_start_failed'));
+  }
+});
+
+hookTest('stop observer transport errors are explicit, sanitized and independent of stop state', async () => {
+  const { runtime, hooks } = await fixture();
+  const observer = runtime.stopObserver();
+  const signal = new AbortController().signal;
+  try {
+    hooks.fail('observer-delivery', SECRET);
+    const wait = observer.waitForChange('NotRequested', { signal });
+    const rejected = assert.rejects(wait, diagnostic('stop_observation_failed'));
+    await runtime.shutdown(0);
+    await bounded(rejected);
+    assert.equal(observer.state, 'Requested');
+    assert.equal(getEventListeners(signal, 'abort').length, 0);
+    assert.equal(await observer.waitForChange('NotRequested'), 'Requested');
+    assert.equal(await observer.waitForChange('Requested'), null);
+  } finally {
+    observer.close();
+    await runtime.shutdown(0);
+  }
+});
+
+hookTest('stop observer sees a real retained fault before held cleanup without an SDK stop', async () => {
+  const { runtime, hooks } = await fixture();
+  const observer = runtime.stopObserver();
+  hooks.hold('worker');
+  hooks.hold('blocking-provider');
+  hooks.fail('worker', SECRET);
+  try {
+    const fault = observer.waitForChange('NotRequested');
+    fault.catch(() => {});
+    await runtime.start();
+    await hooks.waitEntered('worker');
+    await hooks.waitEntered('blocking-provider');
+    hooks.release('worker');
+    assert.equal(await bounded(fault), 'Faulted');
+    assert.equal(observer.state, 'Faulted');
+    assert.notEqual(runtime.metricsSnapshot(), null, 'observation must not call SDK shutdown');
+    assert.ok(JSON.parse(hooks.snapshot()).active > 0);
+    const late = runtime.stopObserver();
+    try {
+      assert.equal(late.state, 'Faulted');
+      assert.equal(await late.waitForChange('NotRequested'), 'Faulted');
+      const abort = new AbortController();
+      const pending = late.waitForChange('Faulted', { signal: abort.signal });
+      pending.catch(() => {});
+      abort.abort();
+      await assert.rejects(pending, { name: 'AbortError' });
+      assert.equal(late.state, 'Faulted');
+      assert.ok(JSON.parse(hooks.snapshot()).active > 0);
+    } finally { late.close(); }
+  } finally {
+    observer.close();
+    hooks.release('worker');
+    hooks.release('blocking-provider');
+    await assert.rejects(runtime.shutdown(0), knownQuiescentCoreFailure);
+  }
+});
+
+hookTest('stop observer sees a real fault while a foreign callback remains pending without an SDK stop', async () => {
+  const { runtime, provider, hooks } = await fixture();
+  const client = new Client(provider);
+  let enter, release;
+  const entered = new Promise(resolve => { enter = resolve; });
+  const retirement = new Promise(resolve => { release = resolve; });
+  let completed = false;
+  runtime.registerActivity('ObserverFaultActivity', async (_, input) => {
+    enter();
+    await retirement;
+    completed = true;
+    return input;
+  });
+  runtime.registerOrchestration('ObserverFaultFlow', function* (context, input) {
+    return yield context.scheduleActivity('ObserverFaultActivity', input);
+  });
+  const observer = runtime.stopObserver();
+  try {
+    const fault = observer.waitForChange('NotRequested');
+    fault.catch(() => {});
+    await runtime.start();
+    await client.startOrchestration('observer-foreign-fault', 'ObserverFaultFlow', 'held');
+    await bounded(entered);
+    hooks.fail('provider', SECRET);
+    await client.startOrchestration('observer-foreign-fault-trigger', 'ObserverFaultFlow', 'trigger');
+    assert.equal(await bounded(fault), 'Faulted');
+    assert.equal(observer.state, 'Faulted');
+    assert.equal(completed, false, 'the real foreign callback must remain held at fault observation');
+    assert.notEqual(runtime.metricsSnapshot(), null, 'observation must not call SDK shutdown');
+    const pending = JSON.parse(hooks.snapshot());
+    const late = runtime.stopObserver();
+    try {
+      assert.equal(late.state, 'Faulted');
+      assert.equal(await late.waitForChange('NotRequested'), 'Faulted');
+      const abort = new AbortController();
+      const pending = late.waitForChange('Faulted', { signal: abort.signal });
+      pending.catch(() => {});
+      abort.abort();
+      await assert.rejects(pending, { name: 'AbortError' });
+      assert.equal(late.state, 'Faulted');
+      assert.equal(completed, false);
+    } finally { late.close(); }
+    // Native retirement does not imply completion of unregistered JS continuations.
+    record('LIFECYCLE_PROBE_RECORD', {
+      scenario: 'observer-foreign-fault', native: provenance,
+      faultWithoutSdkStop: true, callbackHeldAtFault: !completed,
+      state: observer.state, execution: pending,
+    });
+  } finally {
+    observer.close();
+    release();
+    await assert.rejects(runtime.shutdown(0), knownQuiescentCoreFailure);
+    assert.equal(completed, true);
+  }
+});
+
+hookTest('stop observer publisher retirement freezes the final state without retiring execution', async () => {
+  const { runtime, hooks } = await fixture();
+  const observer = runtime.stopObserver();
+  hooks.hold('worker');
+  hooks.hold('blocking-provider');
+  hooks.fail('worker', SECRET);
+  try {
+    await runtime.start();
+    await hooks.waitEntered('worker');
+    await hooks.waitEntered('blocking-provider');
+    const ended = observer.waitForChange('NotRequested');
+    ended.catch(() => {});
+    hooks.retireObservationPublisher(runtime._native);
+    assert.equal(await bounded(ended), null);
+    assert.equal(observer.state, 'NotRequested');
+    assert.ok(JSON.parse(hooks.snapshot()).active > 0);
+    assert.equal(JSON.parse(hooks.snapshot()).coordinators, 0);
+    hooks.release('worker');
+    await until(() => JSON.parse(hooks.snapshot()).coordinators === 1);
+    assert.ok(JSON.parse(hooks.snapshot()).active > 0);
+    assert.equal(observer.state, 'NotRequested', 'the closed source must not follow later core changes');
+    assert.equal(await observer.waitForChange('NotRequested'), null);
+  } finally {
+    observer.close();
+    hooks.release('worker');
+    hooks.release('blocking-provider');
+    await assert.rejects(runtime.shutdown(0), knownQuiescentCoreFailure);
+  }
+});
+
+for (const changeFirst of [false, true]) {
+  hookTest(`stop observer ordered attachment/change/abort/close races 100 times: ${changeFirst ? 'change-first' : 'cancel-first'}`, async () => {
+    for (let iteration = 0; iteration < 100; iteration++) {
+      const { runtime, hooks } = await fixture();
+      await observerRaceAttempt(runtime, hooks, changeFirst, iteration);
+    }
+  });
+}
+
+hookTest('stop observer Requested-to-Faulted escalation stays monotonic through 100 ordered shutdowns', async () => {
+  for (let iteration = 0; iteration < 100; iteration++) {
+    const { runtime, hooks } = await fixture();
+    const observer = runtime.stopObserver();
+    hooks.hold('worker');
+    hooks.hold('blocking-provider');
+    hooks.fail('worker', SECRET);
+    let stop;
+    try {
+      await runtime.start();
+      await hooks.waitEntered('worker');
+      await hooks.waitEntered('blocking-provider');
+      const requested = observer.waitForChange('NotRequested');
+      requested.catch(() => {});
+      stop = runtime.shutdown(30_000);
+      stop.catch(() => {});
+      assert.equal(await bounded(requested), 'Requested');
+      const fault = observer.waitForChange('Requested');
+      fault.catch(() => {});
+      hooks.release('worker');
+      assert.equal(await bounded(fault), 'Faulted', `iteration ${iteration + 1}/100`);
+      assert.ok(JSON.parse(hooks.snapshot()).active > 0);
+    } finally {
+      observer.close();
+      hooks.release('worker');
+      hooks.release('blocking-provider');
+      await assert.rejects(stop ?? runtime.shutdown(0), knownQuiescentCoreFailure);
+    }
+    await assert.rejects(runtime.shutdown(0), knownQuiescentCoreFailure);
+    const late = runtime.stopObserver();
+    assert.equal(late.state, 'Faulted');
+    late.close();
+    retired(hooks, { rollback: true, executionWitness: true });
+  }
+});
+
+test('stop observer stays pending through natural exit after real worker cleanup', async () => {
+  const probe = startProbe('observer-exit');
+  try {
+    const pending = await probe.next('OBSERVER_EXIT_READY', 5000);
+    pendingObserverExit(pending);
+    await probe.successfulExit(3000);
+    const exiting = probe.messages.find(message => message.phase === 'OBSERVER_BEFORE_EXIT');
+    assert.ok(exiting, probe.describe());
+    pendingObserverExit(exiting);
+    record('LIFECYCLE_PROBE_RECORD', { scenario: 'observer-exit', ...exiting });
+  } finally { await probe.dispose(); }
+});
+
+for (const scenario of ['observer-source-end', 'retained-observer']) {
+  test(`stop observer metadata does not retain callback/owner roots: ${scenario}`, async () => {
+    const probe = startProbe(scenario, { fixture: 'lifecycle-collection-probe.cjs' });
+    try {
+      const result = await probe.next('OBSERVER_COLLECTION', 10_000);
+      assert.ok(result.collected, JSON.stringify(result));
       record('LIFECYCLE_PROBE_RECORD', result);
       await probe.successfulExit(3000);
     } finally { await probe.dispose(); }

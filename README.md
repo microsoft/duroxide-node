@@ -67,6 +67,28 @@ for validation and an executable early-drain/repeated-stop example.
 These unreleased changes require a compatible core lifecycle release before distribution.
 A temporary local Cargo override provides development evidence, not a release dependency pin.
 
+### Passive stop observation
+
+`runtime.stopObserver()` returns an owned, metadata-only `RuntimeStopObserver`.
+Read `observer.state` first, then call `waitForChange(lastSeen, { signal })`.
+The states are `'NotRequested'`, `'Requested'`, and sticky `'Faulted'`.
+They report recorded stop/fault state, not readiness or completed cleanup.
+A late observer can already see a fault.
+
+Use one pending wait per observer. Independent consumers need separate observers.
+`AbortSignal` cancels only its wait, rejects with `signal.reason`, and permits retry.
+`close()` is terminal and idempotent; pending and later operations fail.
+A normal source end returns an unseen final state before `null`.
+Intermediate states can coalesce. Neither source end nor a settled Promise
+proves worker cleanup.
+
+Observation does not start/stop the worker, change shutdown deadlines, or retain
+its callbacks. Its native delivery does not keep Node alive by itself; the event
+loop must still run to deliver results. The existing limit on unregistered
+JavaScript continuations remains. See the
+[observer example](docs/user-guide.md#passive-stop-observation) for initial state,
+cancellation, local close, and normal source end.
+
 ## Quick Start
 
 ```bash
