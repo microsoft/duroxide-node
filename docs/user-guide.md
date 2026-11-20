@@ -135,6 +135,30 @@ Arrange process termination through the application's supervisor policy.
 A caught error or successful late observation does not permit runtime reuse.
 A finite grace does not guarantee bounded forced cleanup.
 
+### Native cleanup failures
+
+The matching unreleased core contains failures at named user-cleanup boundaries,
+not arbitrary failures in a task or language. Eligible late cleanup failure
+preserves the actual outer outcome or valid finalized turn decision.
+A nested success does not turn a failed outer operation into success.
+Core, reporting, finalization and registered-cleanup failures still stop the
+affected Runtime. Valid output or a decision is not proof of a committed write.
+
+Native tracing emits a separate `duroxide::runtime::cleanup` event with
+`category="contained_user_cleanup"` for each incident. It does not set `Faulted`;
+`stopObserver()` is not an incident feed or a health check.
+Containment does not repair application state. Panic-payload disposal has at
+most two protected attempts; `cleanup-skipped` means an allocation was left
+undisposed. Attempts can block, and process abort is outside unwind containment.
+The separate Rust panic hook can still print raw payloads.
+
+An SDK-invoked, awaited JavaScript Promise can outlive native cleanup.
+It is not necessarily application-detached work, and this policy adds no .NET-style
+foreign-completion barrier. Keep callback-release proof separate from native drop.
+Existing first-stop budgets and termination requirements remain unchanged.
+These rules require a native build containing the new core behavior; published
+core 0.1.32 or an unchanged registry-only SDK graph does not supply it.
+
 ### Sizing the supervisor budget
 
 Use the supervisor time **remaining at the first shutdown call**, not its original allocation:

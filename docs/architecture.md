@@ -435,6 +435,12 @@ Timeout requires application- or supervisor-owned process termination, even afte
 The SDK never kills the process.
 
 This contract covers core-owned execution, not every JavaScript task.
+The matching unreleased core contains named user-cleanup failures without
+rewriting an actual outer result or valid finalized decision. It does not add
+the .NET registered-completion barrier. An SDK-invoked, awaited JavaScript
+Promise can remain active after its native future is dropped; it need not be
+application-created detached work. Native destruction alone is not proof of
+Promise completion or callback release.
 Independent Clients, providers, and provider token-refresh work keep their separate lifetimes.
 The global orchestration-handler map also remains unchanged.
 See the [lifecycle guide](user-guide.md#runtime-lifecycle) for argument
@@ -465,6 +471,9 @@ Native queued-delivery counters are not JavaScript Promise-settlement counts.
 Neither status, source end, nor these counters prove that an unregistered
 JavaScript continuation ended. See the
 [observer contract and example](user-guide.md#passive-stop-observation).
+Contained incidents are reported through native `duroxide::runtime::cleanup`
+tracing, not observer state. Core/reporting/finalization failures remain
+Runtime-fatal. See [native cleanup failures](user-guide.md#native-cleanup-failures).
 
 ### Platform-Specific Binary
 
