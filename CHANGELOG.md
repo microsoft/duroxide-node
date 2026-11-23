@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-11-23
+
+### Changed
+
+- Update the bundled `duroxide` and `duroxide-pg` Rust dependencies to 0.2.0.
+  Before upgrading a database, review the new PostgreSQL and SQLite migrations
+  and verify rollback compatibility. Reinstalling an older npm package does
+  not undo database migrations.
+
 ## [0.2.4] - 2026-10-27
 
 ### Changed
