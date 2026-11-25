@@ -7,6 +7,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add owned, metadata-only `RuntimeStopObserver` through `Runtime.stopObserver()`.
+  Retained stop/fault state supports independent AbortSignal waits, terminal
+  local close, and final-state delivery before source end. Observation does not
+  retain worker callbacks, keep Node alive by itself, or change shutdown
+  ownership, deadlines, and application policy.
+
+### Changed
+
+- Align native dependency declarations with Duroxide 0.2.0 and `duroxide-pg`
+  0.2.0. Lifecycle support still requires the matching unreleased core.
+- Document named user-cleanup containment with the matching unreleased core:
+  actual outer outcomes and valid finalized decisions survive eligible late
+  failure, with per-incident native tracing instead of false `Faulted` state.
+  Core and delegated lifecycle failures remain fatal. No JavaScript API,
+  callback-lifetime barrier or shutdown budget changes;
+  SDK-invoked unregistered Promises can still outlive native cleanup.
+- Use fallible core startup and bounded shutdown waits while preserving `Promise<void>`.
+  Total waiting is the supplied grace plus five seconds.
+  Omitted grace is one second. Idle workers can finish early.
+  Invalid durations fail before ownership changes, including for no-work and repeated calls.
+  Repeated calls retain the original operation, errors, and deadlines.
+  They do not report success merely because the wrapper transferred its core.
+  Registry and preparation failures become ordinary retained startup errors.
+  Registration policy does not change.
+- Pre-start shutdown is terminal.
+  Start and registration calls fail after activation or stop.
+  Post-stop metrics remain unavailable.
+  Proven cleanup permits release of obsolete callback and core holders on the JavaScript thread.
+  The terminal result and deadlines remain available.
+- Timeouts require application- or supervisor-owned process termination while cleanup remains owned.
+  Later proven cleanup does not remove that requirement.
+  Finite grace does not guarantee bounded forced cleanup.
+  This adapter does not add .NET's foreign-continuation barrier or own detached application work.
+  Release requires a matching published core dependency.
+  Do not distribute local development overrides.
+
+### Fixed
+
+- Report unsupported native stop states as observation errors, not healthy or
+  faulted states. Unsupported shutdown outcomes retain cleanup ownership
+  without claiming quiescence.
+
+### Upgrade notes
+
+- PostgreSQL migrations `0027` and `0028` require a fully drained upgrade:
+  pause retention jobs and drain every provider user, including workers,
+  clients, maintenance jobs and direct SQL callers. Start one new process
+  to apply migrations before restarting traffic. Review retention cutoffs,
+  migration lock windows and rollback compatibility in the
+  [provider 0.2.0 upgrade instructions](https://github.com/microsoft/duroxide-pg/releases/tag/v0.2.0).
+  Existing SDK constructors keep long polling disabled.
+
+### Tests
+
+- Add SQLite-only lifecycle coverage through the real wrapper.
+  Cases include feature-gated provider and fault controls, repeated ordered races,
+  isolated held-provider probes, and production-export checks.
+
 ## [0.2.4] - 2026-10-27
 
 ### Changed

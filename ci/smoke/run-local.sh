@@ -29,5 +29,6 @@ npm init -y >/dev/null
 npm install --no-audit --no-fund --ignore-scripts "$TARBALL_PLATFORM" "$TARBALL_MAIN"
 
 cp "$SMOKE_SCRIPT" ./smoke.mjs
+cp "$(dirname "$SMOKE_SCRIPT")/native-provenance.cjs" ./native-provenance.cjs
 node ./smoke.mjs
 echo "[smoke] local smoke OK"

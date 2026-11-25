@@ -17,8 +17,15 @@
 
 import { SqliteProvider, Client, Runtime } from 'duroxide';
 import { mkdtempSync } from 'node:fs';
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { nativeProvenance } from './native-provenance.cjs';
+
+const require = createRequire(import.meta.url);
+const { provenance } = nativeProvenance(dirname(require.resolve('duroxide/package.json')), { installed: true });
+console.log('[smoke] native=' + JSON.stringify(provenance));
 
 const dir = mkdtempSync(join(tmpdir(), 'duroxide-smoke-'));
 const dbPath = join(dir, 'smoke.db');
@@ -51,3 +58,9 @@ try {
 } finally {
   await runtime.shutdown(200);
 }
+
+assert.equal(await runtime.shutdown(0), undefined);
+assert.equal(runtime.metricsSnapshot(), null);
+const unstarted = new Runtime(provider);
+await unstarted.shutdown(0);
+await assert.rejects(unstarted.start(), /lifecycle_terminal/);

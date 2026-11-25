@@ -171,8 +171,8 @@ Activities have no restrictions — they run once, result is cached.
 
 Release manifests must resolve `duroxide` and `duroxide-pg` from crates.io:
 ```toml
-duroxide = { version = "0.1.32", features = ["sqlite"] }
-duroxide-pg = "0.1.38"
+duroxide = { version = "0.2.0", features = ["sqlite"] }
+duroxide-pg = "0.2.0"
 ```
 
 Temporary local `[patch.crates-io]` sections or inline `path =` overrides are
@@ -203,6 +203,6 @@ validation so CI and published packages use registry crates.
 - All JS callbacks run on the Node.js main thread (single-threaded)
 - No `async function*` generators — breaks replay model
 - SQLite may hit "database is locked" under concurrency (retried automatically)
-- `Runtime.shutdown(timeoutMs)` waits the full timeout (no short-circuit)
+- `Runtime.shutdown(timeoutMs)` uses grace plus five seconds of bounded waiting; idle work can finish early, and failures reject while retaining cleanup.
 - Platform-specific `.node` binary — cross-platform needs per-platform builds
 - Activity cancellation detection latency depends on `workerLockTimeoutMs` (default 30s → ~15s detection)
