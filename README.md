@@ -212,6 +212,13 @@ const provider = await SqliteProvider.inMemory();
 
 ### PostgreSQL
 
+**Database upgrade:** `duroxide-pg` 0.2.0 requires a fully drained upgrade.
+Pause retention jobs and drain all provider users, including workers, clients,
+maintenance jobs and direct SQL callers. Start one new process to apply migrations
+before restarting traffic. Review the
+[provider upgrade and rollback instructions](https://github.com/microsoft/duroxide-pg/releases/tag/v0.2.0)
+before connecting to an existing database.
+
 ```javascript
 const provider = await PostgresProvider.connectWithSchema(
   'postgresql://user:pass@host:5432/db',
@@ -221,7 +228,7 @@ const provider = await PostgresProvider.connectWithSchema(
 
 #### Upgrading to 0.2.4
 
-This release uses `duroxide-pg` 0.1.38. Connecting applies migration `0026`,
+The published 0.2.4 release uses `duroxide-pg` 0.1.38. Connecting applies migration `0026`,
 including a unique index on `instance_locks(lock_token)`. The index is not
 built concurrently and blocks writes to that table while it builds.
 

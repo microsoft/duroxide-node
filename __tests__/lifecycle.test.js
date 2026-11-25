@@ -582,6 +582,38 @@ hookTest('stop observer transport errors are explicit, sanitized and independent
   }
 });
 
+hookTest('unsupported native stop status fails observation without stopping or releasing the worker', async () => {
+  const { runtime, hooks } = await fixture();
+  const observer = runtime.stopObserver();
+  hooks.hold('observer-delivery');
+  hooks.hold('observer-final-access');
+  try {
+    await runtime.start();
+    const wait = observer.waitForChange('NotRequested');
+    const rejected = assert.rejects(wait, /stop_observation_failed: unsupported native stop status/);
+    hooks.failObservationStatus(runtime._native);
+    await hooks.waitEntered('observer-delivery');
+    assert.equal(JSON.parse(hooks.snapshot()).observerPending, 1);
+    hooks.release('observer-delivery');
+    await bounded(rejected);
+    await hooks.waitEntered('observer-final-access');
+    assert.equal(JSON.parse(hooks.snapshot()).observerDeliveries, 1);
+    hooks.release('observer-final-access');
+    assert.throws(() => observer.state, /stop_observation_failed: unsupported native stop status/);
+    assert.notEqual(runtime.metricsSnapshot(), null);
+    assert.equal(JSON.parse(hooks.snapshot()).coordinators, 0);
+    await runtime.shutdown(100);
+    hooks.retireObservationPublisher(runtime._native);
+    assert.throws(() => observer.state, /stop_observation_failed: unsupported native stop status/);
+    await assert.rejects(observer.waitForChange('Requested'), /stop_observation_failed: unsupported native stop status/);
+  } finally {
+    hooks.release('observer-delivery');
+    hooks.release('observer-final-access');
+    observer.close();
+    await runtime.shutdown(100);
+  }
+});
+
 hookTest('stop observer sees a real retained fault before held cleanup without an SDK stop', async () => {
   const { runtime, hooks } = await fixture();
   const observer = runtime.stopObserver();

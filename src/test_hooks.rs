@@ -90,6 +90,17 @@ impl LifecycleTestHooks {
     }
 
     #[napi]
+    pub fn fail_observation_status(&self, runtime: &JsRuntime) -> Result<()> {
+        if !Arc::ptr_eq(&self.observation.0, &runtime.stop_source.hooks.0) {
+            return Err(Error::from_reason(
+                "test observation publisher does not match",
+            ));
+        }
+        runtime.stop_source.fail_status();
+        Ok(())
+    }
+
+    #[napi]
     pub fn retire_observation_publisher(&self, runtime: &mut JsRuntime) -> Result<()> {
         if !Arc::ptr_eq(&self.observation.0, &runtime.stop_source.hooks.0) {
             return Err(Error::from_reason(

@@ -519,7 +519,8 @@ struct ShutdownResources(Option<ExecutionResources>);
 impl ShutdownResources {
     fn complete(mut self, env: &Env, result: ShutdownResult) -> ShutdownResult {
         let quiescent = match result {
-            Ok(_) => true,
+            Ok(runtime::ShutdownOutcome::Drained | runtime::ShutdownOutcome::Forced) => true,
+            Ok(_) => return Err(ShutdownWaitError::UnsupportedOutcome),
             Err(ShutdownWaitError::Core(error)) => error.is_quiescent(),
             Err(_) => false,
         };
@@ -555,6 +556,7 @@ enum ShutdownWaitError {
     TimedOut,
     OwnerLost,
     Core(runtime::RuntimeShutdownError),
+    UnsupportedOutcome,
     CallbackReleaseFailed,
 }
 
@@ -594,6 +596,9 @@ fn shutdown_error(error: ShutdownWaitError) -> Error {
         ShutdownWaitError::Core(error) => {
             Error::from_reason(format!("lifecycle_shutdown_failed: {error}"))
         }
+        ShutdownWaitError::UnsupportedOutcome => Error::from_reason(
+            "lifecycle_shutdown_failed: unsupported native shutdown outcome; quiescence is unproven; application or supervisor must terminate the process",
+        ),
         ShutdownWaitError::CallbackReleaseFailed => Error::from_reason(
             "lifecycle_shutdown_failed: callback event-loop reference release failed",
         ),
